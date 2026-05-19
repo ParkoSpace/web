@@ -447,7 +447,7 @@ def create_listing():
         "breadth": float(data.get('breadth', 0)),
         "amenities": data.get('amenities', []),
         "gmap_link": data.get('gmap_link', '#'),
-        "image": "https://source.unsplash.com/random/400x300?parking,india,car",
+        "image": "https://source.unsplash.com/random/400x300?parking,city,car",
         "owner_phone": data.get('owner_phone'),
         "is_sold": data.get('is_sold', False),
         "created_at": time.time()
@@ -499,7 +499,7 @@ def send_otp():
         response = requests.post("https://otp-service-beta.vercel.app/api/otp/generate", json={
             "email": email,
             "type": "numeric",
-            "organization": "ParkoSpace India",
+            "organization": "ParkoSpace",
             "subject": "ParkoSpace Login Verification"
         }, timeout=10)
 
@@ -572,4 +572,4 @@ def auth_logout():
 
 # ── AI INFERENCE PROXY ──────────────────────────────────────────
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

@@ -23,7 +23,7 @@ const state = {
   _gmapsKey: '',
 };
 
-// Default: Kakinada, Andhra Pradesh
+// Default: Global Center
 const AP_DEFAULT = { lat: 16.9891, lng: 82.2475 };
 
 // ── TOAST ──────────────────────────────────────────────────────
@@ -355,7 +355,7 @@ function renderLanding() {
   <img src="/static/logo.png" alt="ParkoSpace" style="height:36px;width:36px;object-fit:contain">
   <div style="font-family:var(--font-display);font-size:1.6rem;letter-spacing:0.04em;color:var(--cyan);line-height:1">
   PARKO<span style="color:rgba(255,255,255,0.6)">SPACE</span>
-  <span style="display:block;font-family:var(--font-mono);font-size:0.5rem;color:rgba(255,255,255,0.2);letter-spacing:0.2em;margin-top:2px">INDIA · PARK SMARTER</span>
+  <span style="display:block;font-family:var(--font-mono);font-size:0.5rem;color:rgba(255,255,255,0.2);letter-spacing:0.2em;margin-top:2px">GLOBAL · PARK SMARTER</span>
   </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
@@ -378,10 +378,10 @@ function renderLanding() {
   </div>
 
   <!-- Headline -->
-  <h1 style="font-family:var(--font-display);font-size:clamp(3.5rem,10vw,8.5rem);letter-spacing:0.02em;line-height:0.92;color:white;margin-bottom:0.2em">
+  <h1 style="font-family:var(--font-display);font-size:clamp(2.2rem,10vw,8.5rem);letter-spacing:0.02em;line-height:0.92;color:white;margin-bottom:0.2em">
   SMART PARKING
   </h1>
-  <h2 class="gradient-headline" style="font-family:var(--font-display);font-size:clamp(3.5rem,10vw,8.5rem);letter-spacing:0.02em;line-height:0.92;margin-bottom:1.8rem">
+  <h2 class="gradient-headline" style="font-family:var(--font-display);font-size:clamp(2.2rem,10vw,8.5rem);letter-spacing:0.02em;line-height:0.92;margin-bottom:1.8rem">
   REIMAGINED
   </h2>
 
@@ -464,9 +464,9 @@ function renderLanding() {
   <footer style="padding:40px 24px;text-align:center;border-top:1px solid rgba(255,255,255,0.05)">
   <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:10px">
   <img src="/static/logo.png" alt="Logo" style="height:22px;width:22px;object-fit:contain;opacity:0.5">
-  <span style="font-family:var(--font-display);font-size:1.1rem;color:var(--cyan);letter-spacing:0.06em">PARKOSPACE<span style="color:rgba(255,255,255,0.28)"> INDIA</span></span>
+  <span style="font-family:var(--font-display);font-size:1.1rem;color:var(--cyan);letter-spacing:0.06em">PARKOSPACE<span style="color:rgba(255,255,255,0.28)"> WORLD</span></span>
   </div>
-  <p style="font-family:var(--font-mono);font-size:0.6rem;color:rgba(255,255,255,0.15);letter-spacing:0.08em">BUILT WITH ❤️ IN INDIA · MIT LICENSE · 2026</p>
+  <p style="font-family:var(--font-mono);font-size:0.6rem;color:rgba(255,255,255,0.15);letter-spacing:0.08em">BUILT WITH ❤️ FOR THE WORLD FROM INDIA · MIT LICENSE · 2026</p>
   </footer>
 
   </div>`;
@@ -510,7 +510,7 @@ function buildMapUI() {
   </div>
 
   <!-- Search box — Google Places Autocomplete attaches here -->
-  <div class="flex-1 max-w-lg mx-4 flex gap-2">
+  <div class="flex-1 max-w-lg mx-1.5 sm:mx-4 flex gap-2">
   <div class="relative flex-1">
   <span class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style="color:rgba(255,255,255,0.25)">
   <i data-lucide="search" class="w-4 h-4"></i>
@@ -528,7 +528,7 @@ function buildMapUI() {
   </button>
   </div>
 
-  <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg flex-shrink-0" style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.06)">
+  <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg flex-shrink-0" style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.06)">
   <span class="hidden sm:block" style="font-family:var(--font-mono);font-size:0.6rem;color:rgba(255,255,255,0.25);letter-spacing:0.1em">RADIUS</span>
   <input type="range" min="1" max="20" value="${state.radius}" onchange="updateRadius(this.value)"
   class="h-1 w-16 md:w-24 cursor-pointer" style="accent-color:var(--cyan)">
@@ -550,6 +550,14 @@ function buildMapUI() {
 
   <!-- Google Map -->
   <div id="map-container" class="flex-1 relative" style="background:#05050e"></div>
+
+  <!-- Floating Radius Control for Mobile -->
+  <div class="absolute bottom-6 left-4 z-20 sm:hidden flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl backdrop-blur-md" style="background:rgba(8,8,22,0.85);border:1px solid rgba(0,212,255,0.25);box-shadow:0 8px 32px rgba(0,0,0,0.5)">
+    <span style="font-family:var(--font-mono);font-size:0.6rem;color:rgba(255,255,255,0.25);letter-spacing:0.1em">RADIUS</span>
+    <input type="range" min="1" max="20" value="${state.radius}" onchange="updateRadius(this.value)"
+    class="h-1 w-24 cursor-pointer" style="accent-color:var(--cyan)">
+    <span id="radius-label-mobile" style="font-family:var(--font-mono);color:var(--cyan);font-size:0.82rem;width:2.8rem;text-align:right">${state.radius}km</span>
+  </div>
 
   <!-- Loading overlay -->
   <div id="map-loading" class="absolute inset-0 flex items-center justify-center z-30 pointer-events-none" style="background:rgba(5,5,14,0.7)">
@@ -731,6 +739,8 @@ async function updateRadius(val) {
   state.radius = val;
   const lbl = document.getElementById('radius-label');
   if (lbl) lbl.textContent = `${val}km`;
+  const lblMobile = document.getElementById('radius-label-mobile');
+  if (lblMobile) lblMobile.textContent = `${val}km`;
   clearTimeout(state._radiusTm);
   state._radiusTm = setTimeout(() => fetchAndRenderListings(), 400);
 }
@@ -762,7 +772,7 @@ async function renderDashboard() {
   </header>
 
   <!-- Stats -->
-  <div class="grid grid-cols-3 gap-4 mb-10">
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
   <div class="dash-stat" style="--accent-color:var(--cyan)">
   <div class="font-black" style="font-family:var(--font-display);font-size:2.4rem;color:var(--cyan)">${myListings.length}</div>
   <div style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.25);letter-spacing:0.1em;margin-top:3px">TOTAL LISTINGS</div>
@@ -790,7 +800,7 @@ async function renderDashboard() {
 
   <div class="space-y-4">
   <input id="in-title"    type="text" placeholder="Space Title (e.g. Covered Spot near Metro)" class="ps-input">
-  <input id="in-landmark" type="text" placeholder="Area / Landmark (e.g. Gajuwaka, Near Flyover)" class="ps-input">
+  <input id="in-landmark" type="text" placeholder="Area / Landmark (e.g. Next to Gym, Near Supermarket)" class="ps-input">
   <textarea id="in-desc"  placeholder="Short description of the space…" rows="2" class="ps-input resize-none"></textarea>
 
   <!-- Pricing tip -->
