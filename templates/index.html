@@ -1,7 +1,45 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#00d4ff">
+    <meta name="description" content="Find and list parking spaces in Bengaluru">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ParkoSpace">
+    <title>ParkoSpace</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="{{ url_for('static', filename='logo.png') }}" type="image/png">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.png') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}?v=11">
+    <style>
+        .gm-style .gm-style-iw-c { background:rgba(8,8,22,0.97)!important; border:1px solid rgba(0,212,255,0.35)!important; border-radius:14px!important; box-shadow:0 0 40px rgba(0,212,255,0.15),0 8px 40px rgba(0,0,0,0.7)!important; padding:0!important; }
+        .gm-style .gm-style-iw-d { overflow:hidden!important; padding:14px 18px!important; }
+        .gm-style .gm-style-iw-t::after { background:rgba(0,212,255,0.6)!important; }
+        .gm-style .gm-style-iw-chr { display:none!important; }
+        #map-container { outline:none; }
+        .pac-container { background:rgba(9,9,22,0.98); border:1px solid rgba(0,212,255,0.25); border-radius:12px; box-shadow:0 8px 40px rgba(0,0,0,0.6); font-family:'Space Grotesk',sans-serif; margin-top:6px; }
+        .pac-item { background:transparent; border-top:1px solid rgba(255,255,255,0.04); color:rgba(255,255,255,0.7); padding:10px 16px; cursor:pointer; font-size:0.875rem; }
+        .pac-item:hover, .pac-item-selected { background:rgba(0,212,255,0.07); }
+        .pac-item-query { color:white; font-weight:600; }
+        .pac-icon, .pac-logo { display:none; }
+    </style>
+</head>
 <body>
- <h1>Down for  UI upgrades and fresh updates stay tuned!</h1>
+    <div id="app"></div>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=11"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
 </body>
 </html>

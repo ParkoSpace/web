@@ -23,8 +23,9 @@ const state = {
   _gmapsKey: '',
 };
 
-// Default: Global Center
-const AP_DEFAULT = { lat: 16.9891, lng: 82.2475 };
+// Default map center: Bengaluru
+const BENGALURU_DEFAULT = { lat: 12.9716, lng: 77.5946 };
+const BENGALURU_BOUNDS = { south: 12.834, west: 77.460, north: 13.143, east: 77.780 };
 
 // ── TOAST ──────────────────────────────────────────────────────
 function toast(msg, type = 'info') {
@@ -248,6 +249,11 @@ function initPlacesAutocomplete() {
   if (!input || !state._gmapsLoaded) return;
 
   const ac = new google.maps.places.Autocomplete(input, {
+    bounds: new google.maps.LatLngBounds(
+      { lat: BENGALURU_BOUNDS.south, lng: BENGALURU_BOUNDS.west },
+      { lat: BENGALURU_BOUNDS.north, lng: BENGALURU_BOUNDS.east }
+    ),
+    strictBounds: false,
     componentRestrictions: { country: 'in' },
     fields: ['geometry', 'formatted_address', 'name'],
   });
@@ -272,33 +278,161 @@ function initPlacesAutocomplete() {
 }
 
 // ── MAP URL PARSER ──────────────────────────────────────────────
+function parseCoordsClient(url) {
+  const direct = url.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+  if (direct) return { lat: parseFloat(direct[1]), lng: parseFloat(direct[2]), address: 'Pinned Location' };
+  const patterns = [
+    /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+    /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/,
+    /!3d(-?\d+\.\d+).*?!4d(-?\d+\.\d+)/,
+    /center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i,
+    /!3d(-?\d+\.\d+)[^!]*!4d(-?\d+\.\d+)/,
+    /ll=(-?\d+\.\d+),(-?\d+\.\d+)/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]), address: null };
+  }
+  const embedded = url.match(/link=([^&]+)/);
+  if (embedded) return parseCoordsClient(decodeURIComponent(embedded[1])) || null;
+  const place = url.match(/\/place[s]?\/([^/@?&]+)/i);
+  if (place) {
+    const name = decodeURIComponent(place[1].replace(/\+/g, ' ')).trim();
+    if (name && !/^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$/.test(name)) return { address: name };
+  }
+  return null;
+}
+
+async function geocodeWithGoogleMaps(query) {
+  const loaded = await loadGoogleMaps();
+  if (!loaded || !window.google?.maps?.Geocoder) return null;
+  const geocoder = new google.maps.Geocoder();
+  return new Promise((resolve) => {
+    geocoder.geocode({
+      address: query.includes('Bengaluru') || query.includes('Bangalore') ? query : `${query}, Bengaluru, Karnataka, India`,
+      region: 'IN',
+      bounds: new google.maps.LatLngBounds(
+        { lat: BENGALURU_BOUNDS.south, lng: BENGALURU_BOUNDS.west },
+        { lat: BENGALURU_BOUNDS.north, lng: BENGALURU_BOUNDS.east }
+      ),
+    }, (results, status) => {
+      if (status === 'OK' && results?.[0]) {
+        resolve({
+          lat: results[0].geometry.location.lat(),
+          lng: results[0].geometry.location.lng(),
+          address: results[0].formatted_address,
+        });
+      } else resolve(null);
+    });
+  });
+}
+
+function useGpsForListing() {
+  const statusDiv = document.getElementById('url-status');
+  if (!navigator.geolocation) {
+    statusDiv.innerHTML = '<span class="url-status-err">GPS not supported on this device</span>';
+    return;
+  }
+  statusDiv.innerHTML = '<span class="url-status-loading"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Getting GPS location…</span>';
+  lucide.createIcons();
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      showLocationVerified(statusDiv, { lat, lng, address: 'Current GPS Location' });
+      toast('GPS location set!', 'success');
+    },
+    () => {
+      statusDiv.innerHTML = '<span class="url-status-err">Could not get GPS. Allow location permission and try again.</span>';
+    },
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+  );
+}
+
+function showLocationVerified(statusDiv, data) {
+  state.parsedLocation = { lat: data.lat, lng: data.lng, address: data.address };
+  statusDiv.innerHTML = `
+  <div class="url-status-ok">
+  <div class="url-status-title"><i data-lucide="check-circle" class="w-3 h-3"></i> Location Verified</div>
+  <div class="url-status-addr">${data.address || 'Pinned Location'}</div>
+  <div class="url-status-coords">${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</div>
+  </div>`;
+  lucide.createIcons();
+}
+
 async function parseMapUrl() {
   const urlEl     = document.getElementById('in-gmap');
   const statusDiv = document.getElementById('url-status');
-  const url       = urlEl.value.trim();
+  const landmark  = document.getElementById('in-landmark')?.value?.trim() || '';
+  let url         = urlEl.value.trim();
   if (!url) { toast('Paste a Google Maps link first', 'error'); return; }
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
 
-  statusDiv.innerHTML = `<span style="color:var(--cyan);font-size:0.75rem;display:flex;align-items:center;gap:4px"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Reading map link…</span>`;
+  let local = parseCoordsClient(url);
+  if (local?.lat != null && local?.lng != null) {
+    showLocationVerified(statusDiv, { lat: local.lat, lng: local.lng, address: local.address || 'Pinned Location' });
+    toast('Location extracted!', 'success');
+    return;
+  }
+
+  if (local?.address) {
+    const geo = await geocodeWithGoogleMaps(local.address);
+    if (geo) {
+      showLocationVerified(statusDiv, geo);
+      toast('Location extracted!', 'success');
+      return;
+    }
+  }
+
+  statusDiv.innerHTML = '<span class="url-status-loading"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Reading map link…</span>';
   lucide.createIcons();
 
   try {
-    const res  = await fetch('/api/utils/parse-map-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+    if (/goo\.gl/i.test(url)) {
+      const exRes = await fetch('/api/utils/expand-map-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const ex = await exRes.json();
+      if (ex.expanded_url && ex.expanded_url !== url) {
+        urlEl.value = ex.expanded_url;
+        url = ex.expanded_url;
+      }
+      if (ex.lat != null && ex.lng != null) {
+        showLocationVerified(statusDiv, { lat: ex.lat, lng: ex.lng, address: ex.address || 'Pinned Location' });
+        toast('Location extracted!', 'success');
+        return;
+      }
+    }
+
+    const res  = await fetch('/api/utils/parse-map-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, landmark }),
+    });
     const data = await res.json();
     if (data.success) {
-      state.parsedLocation = { lat: data.lat, lng: data.lng, address: data.address };
-      statusDiv.innerHTML = `
-      <div style="margin-top:8px;background:rgba(6,255,165,0.06);border:1px solid rgba(6,255,165,0.2);padding:12px;border-radius:12px;font-size:0.78rem">
-      <div style="color:var(--green);font-weight:700;display:flex;align-items:center;gap:4px;margin-bottom:4px"><i data-lucide="check-circle" class="w-3 h-3"></i> Location Verified</div>
-      <div style="color:#e2e8f0;font-weight:600">${data.address}</div>
-      <div style="font-family:var(--font-mono);color:rgba(255,255,255,0.3);margin-top:4px;font-size:0.65rem">${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</div>
-      </div>`;
-      lucide.createIcons();
+      showLocationVerified(statusDiv, data);
       toast('Location extracted!', 'success');
-    } else {
-      statusDiv.innerHTML = `<span style="color:var(--pink);font-size:0.75rem;font-weight:700">✕ ${data.error}</span>`;
-      toast(data.error, 'error');
+      return;
     }
-  } catch (e) { toast('Connection error', 'error'); }
+
+    const geoQuery = landmark || local?.address;
+    if (geoQuery) {
+      const geo = await geocodeWithGoogleMaps(geoQuery);
+      if (geo) {
+        showLocationVerified(statusDiv, geo);
+        toast('Location extracted!', 'success');
+        return;
+      }
+    }
+
+    statusDiv.innerHTML = `<span class="url-status-err">✕ ${data.error}</span>
+    <button type="button" onclick="useGpsForListing()" class="gps-fallback-btn">Use my GPS location instead</button>`;
+    lucide.createIcons();
+  } catch (e) {
+    statusDiv.innerHTML = '<span class="url-status-err">✕ Connection error. Check your network and try again.</span>';
+  }
 }
 
 // ── LOCATION SEARCH FALLBACK (Enter key) ───────────────────────
@@ -355,11 +489,13 @@ function renderLanding() {
   <img src="/static/logo.png" alt="ParkoSpace" style="height:36px;width:36px;object-fit:contain">
   <div style="font-family:var(--font-display);font-size:1.6rem;letter-spacing:0.04em;color:var(--cyan);line-height:1">
   PARKO<span style="color:rgba(255,255,255,0.6)">SPACE</span>
-  <span style="display:block;font-family:var(--font-mono);font-size:0.5rem;color:rgba(255,255,255,0.2);letter-spacing:0.2em;margin-top:2px">GLOBAL · PARK SMARTER</span>
+  <span style="display:block;font-family:var(--font-mono);font-size:0.5rem;color:rgba(255,255,255,0.2);letter-spacing:0.2em;margin-top:2px">BENGALURU · PARK SMARTER</span>
   </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-  <button onclick="checkOwnerAuth()" style="color:rgba(255,255,255,0.5);font-size:0.875rem;font-family:var(--font-body);font-weight:600;padding:8px 14px;border-radius:10px;background:transparent;border:none;cursor:pointer">${state.currentUser ? 'Dashboard' : 'Partner'}</button>
+  <button onclick="checkOwnerAuth()" class="nav-partner-btn">${state.currentUser
+    ? `<span class="nav-dash-stack"><span class="nav-dash-line">Dash</span><span class="nav-dash-line">board</span></span>`
+    : 'Partner'}</button>
   <button onclick="goToMap()" class="btn-glow" style="background:var(--cyan);color:#05050f;font-size:0.875rem;font-family:var(--font-body);font-weight:700;padding:10px 22px;border-radius:12px;border:none;cursor:pointer">Find Parking</button>
   </div>
   </nav>
@@ -443,7 +579,7 @@ function renderLanding() {
 
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px">
   ${[
-    { n:'01', icon:'map-pin',    title:'Find Your Area',    desc:'Enter your location or tap GPS. We show all verified parking spots nearby on a live Google Map.',          c:'var(--cyan)'   },
+    { n:'01', icon:'map-pin',    title:'Find Your Area',    desc:'Search any Bengaluru neighbourhood or tap GPS. Verified parking spots appear on a live Google Map.',          c:'var(--cyan)'   },
     { n:'02', icon:'phone-call', title:'Contact the Owner', desc:'Call the space owner directly — no middleman, no booking fee. Just a direct phone call.',                   c:'var(--purple)' },
     { n:'03', icon:'car',        title:'Park & Go',         desc:'Navigate with Google Maps, reach the spot, and settle with the owner directly. Done.',                        c:'var(--green)'  },
   ].map(({ n, icon, title, desc, c }) => `
@@ -464,9 +600,9 @@ function renderLanding() {
   <footer style="padding:40px 24px;text-align:center;border-top:1px solid rgba(255,255,255,0.05)">
   <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:10px">
   <img src="/static/logo.png" alt="Logo" style="height:22px;width:22px;object-fit:contain;opacity:0.5">
-  <span style="font-family:var(--font-display);font-size:1.1rem;color:var(--cyan);letter-spacing:0.06em">PARKOSPACE<span style="color:rgba(255,255,255,0.28)"> WORLD</span></span>
+  <span style="font-family:var(--font-display);font-size:1.1rem;color:var(--cyan);letter-spacing:0.06em">PARKOSPACE<span style="color:rgba(255,255,255,0.28)"> BENGALURU</span></span>
   </div>
-  <p style="font-family:var(--font-mono);font-size:0.6rem;color:rgba(255,255,255,0.15);letter-spacing:0.08em">BUILT WITH ❤️ FOR THE WORLD FROM INDIA · MIT LICENSE · 2026</p>
+  <p style="font-family:var(--font-mono);font-size:0.6rem;color:rgba(255,255,255,0.15);letter-spacing:0.08em">BENGALURU PARKING MARKETPLACE · MIT LICENSE · 2026</p>
   </footer>
 
   </div>`;
@@ -479,17 +615,18 @@ function goToMap() {
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
       (pos) => { state.userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude }; buildMapUI(); },
-                                             ()    => { state.userLoc = AP_DEFAULT; buildMapUI(); toast('Enable GPS for nearby spots, or search an area', 'info'); },
+                                             ()    => { state.userLoc = BENGALURU_DEFAULT; buildMapUI(); toast('Showing Bengaluru — enable GPS or search your area', 'info'); },
                                              { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
     );
   } else {
-    state.userLoc = AP_DEFAULT;
+    state.userLoc = BENGALURU_DEFAULT;
     buildMapUI();
+    toast('Showing Bengaluru — enable GPS or search your area', 'info');
   }
 }
 
 async function fetchAndRenderListings() {
-  const loc = state.userLoc || AP_DEFAULT;
+  const loc = state.userLoc || BENGALURU_DEFAULT;
   const res  = await fetch(`/api/listings?lat=${loc.lat}&lng=${loc.lng}&radius=${state.radius}`);
   state.listings = await res.json();
   updateMapMarkers();
@@ -516,7 +653,7 @@ function buildMapUI() {
   <i data-lucide="search" class="w-4 h-4"></i>
   </span>
   <input id="map-search-input" type="text"
-  placeholder="Search area, street, or landmark…"
+  placeholder="Search Bengaluru area (e.g. Koramangala, Indiranagar)…"
   onkeypress="searchLocation(event)"
   class="w-full py-2.5 pl-10 pr-4 rounded-full outline-none transition"
   style="background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.08);color:white;font-family:var(--font-body);font-size:0.9rem">
@@ -593,8 +730,8 @@ async function initGoogleMap() {
 
   if (loadingEl) loadingEl.style.display = 'none';
 
-  const loc = state.userLoc || AP_DEFAULT;
-  const isReal = state.userLoc && !(state.userLoc.lat === AP_DEFAULT.lat);
+  const loc = state.userLoc || BENGALURU_DEFAULT;
+  const isReal = state.userLoc && !(state.userLoc.lat === BENGALURU_DEFAULT.lat && state.userLoc.lng === BENGALURU_DEFAULT.lng);
 
   state.map = new google.maps.Map(document.getElementById('map-container'), {
     center: loc,
@@ -753,37 +890,36 @@ async function renderDashboard() {
   const myListings = await res.json();
 
   document.getElementById('app').innerHTML = `
-  <div class="min-h-screen pb-20" style="background:var(--bg)">
-  <div class="max-w-6xl mx-auto px-4 md:px-8">
+  <div class="owner-dashboard min-h-screen pb-24" style="background:var(--bg)">
+  <div class="page-container max-w-6xl mx-auto px-4 sm:px-6 md:px-8">
 
-  <header class="flex flex-col md:flex-row justify-between items-center py-7 mb-8 gap-4" style="border-bottom:1px solid rgba(255,255,255,0.05)">
-  <div>
-  <div class="mono-tag inline-flex mb-2" style="font-size:0.6rem">
+  <header class="dash-header flex flex-col md:flex-row justify-between items-start md:items-center py-6 mb-6 gap-4">
+  <div class="dash-header-text">
+  <div class="mono-tag inline-flex mb-2">
   <i data-lucide="user-check" class="w-3 h-3"></i> VERIFIED PARTNER
   </div>
-  <h1 class="font-black text-white" style="font-family:var(--font-display);font-size:clamp(1.8rem,4vw,3rem);letter-spacing:0.04em">OWNER DASHBOARD</h1>
-  <p style="font-family:var(--font-mono);font-size:0.75rem;color:var(--cyan);margin-top:4px">${user.name} · ${user.phone}</p>
+  <h1 class="dash-title font-black text-white">OWNER DASHBOARD</h1>
+  <p class="dash-subtitle">${user.name} · ${user.phone}</p>
   </div>
-  <div class="flex gap-2 flex-wrap justify-end">
-  <button onclick="renderLanding()" class="px-4 py-2 rounded-xl text-sm font-semibold" style="border:1px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.45);font-family:var(--font-body)">Home</button>
-  <button onclick="logout()" class="btn-glow px-4 py-2 rounded-xl text-sm font-semibold"
-  style="background:rgba(247,37,133,0.07);color:var(--pink);border:1px solid rgba(247,37,133,0.18);font-family:var(--font-body)">Log Out</button>
+  <div class="flex gap-2 flex-wrap w-full md:w-auto">
+  <button onclick="renderLanding()" class="dash-btn-secondary flex-1 md:flex-none">Home</button>
+  <button onclick="logout()" class="dash-btn-logout flex-1 md:flex-none">Log Out</button>
   </div>
   </header>
 
   <!-- Stats -->
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+  <div class="grid grid-cols-3 gap-2 sm:gap-4 mb-8">
   <div class="dash-stat" style="--accent-color:var(--cyan)">
-  <div class="font-black" style="font-family:var(--font-display);font-size:2.4rem;color:var(--cyan)">${myListings.length}</div>
-  <div style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.25);letter-spacing:0.1em;margin-top:3px">TOTAL LISTINGS</div>
+  <div class="dash-stat-num" style="color:var(--cyan)">${myListings.length}</div>
+  <div class="dash-stat-label">TOTAL</div>
   </div>
   <div class="dash-stat" style="--accent-color:var(--green)">
-  <div class="font-black" style="font-family:var(--font-display);font-size:2.4rem;color:var(--green)">${myListings.filter(l => !l.is_sold).length}</div>
-  <div style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.25);letter-spacing:0.1em;margin-top:3px">ACTIVE</div>
+  <div class="dash-stat-num" style="color:var(--green)">${myListings.filter(l => !l.is_sold).length}</div>
+  <div class="dash-stat-label">ACTIVE</div>
   </div>
   <div class="dash-stat" style="--accent-color:var(--pink)">
-  <div class="font-black" style="font-family:var(--font-display);font-size:2.4rem;color:var(--pink)">${myListings.filter(l => l.is_sold).length}</div>
-  <div style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.25);letter-spacing:0.1em;margin-top:3px">BOOKED</div>
+  <div class="dash-stat-num" style="color:var(--pink)">${myListings.filter(l => l.is_sold).length}</div>
+  <div class="dash-stat-label">BOOKED</div>
   </div>
   </div>
 
@@ -791,79 +927,87 @@ async function renderDashboard() {
 
   <!-- FORM -->
   <div class="lg:col-span-5">
-  <div class="glass-card p-6 md:p-7 relative" style="border-top:2px solid rgba(0,212,255,0.45)">
-  <div class="absolute top-0 right-0 px-3 py-1 rounded-bl-xl" style="background:var(--cyan);color:#05050f;font-family:var(--font-mono);font-size:0.62rem;font-weight:800;letter-spacing:0.1em">${state.editMode ? 'EDITING' : 'NEW LISTING'}</div>
-  <h2 class="font-bold text-white mb-6 flex items-center gap-2" style="font-family:var(--font-body);font-size:1rem">
+  <div class="glass-card form-card p-5 sm:p-6 md:p-7 relative" style="border-top:2px solid rgba(0,212,255,0.45)">
+  <div class="form-badge">${state.editMode ? 'EDITING' : 'NEW LISTING'}</div>
+  <h2 class="form-heading font-bold text-white flex items-center gap-2">
   <i data-lucide="${state.editMode ? 'pencil' : 'plus-circle'}" class="w-5 h-5" style="color:var(--cyan)"></i>
   ${state.editMode ? 'Edit Property' : 'Add Property'}
   </h2>
 
-  <div class="space-y-4">
-  <input id="in-title"    type="text" placeholder="Space Title (e.g. Covered Spot near Metro)" class="ps-input">
-  <input id="in-landmark" type="text" placeholder="Area / Landmark (e.g. Next to Gym, Near Supermarket)" class="ps-input">
-  <textarea id="in-desc"  placeholder="Short description of the space…" rows="2" class="ps-input resize-none"></textarea>
+  <div class="form-stack">
+  <input id="in-title"    type="text" placeholder="Space Title (e.g. Covered Spot near Koramangala Metro)" class="ps-input">
+  <input id="in-landmark" type="text" placeholder="Area / Landmark (e.g. BTM Layout, near Forum Mall)" class="ps-input">
+  <textarea id="in-desc"  placeholder="Short description of the space…" rows="3" class="ps-input resize-none"></textarea>
 
   <!-- Pricing tip -->
-  <div class="flex items-start gap-3 p-4 rounded-xl" style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.12)">
-  <div class="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5" style="background:rgba(0,212,255,0.1)">
+  <div class="tip-box flex items-start gap-3 p-4 rounded-xl">
+  <div class="tip-box-icon flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5">
   <i data-lucide="info" class="w-4 h-4" style="color:var(--cyan)"></i>
   </div>
   <div>
-  <div class="font-semibold mb-1" style="color:white;font-family:var(--font-body);font-size:0.875rem">Pricing tip</div>
-  <div style="font-size:0.78rem;color:rgba(255,255,255,0.35);line-height:1.6">Hourly: ₹30–80 · Daily: ₹150–400 · Monthly: ₹1000–3000 depending on area and amenities.</div>
+  <div class="tip-box-title font-semibold mb-1">Pricing tip</div>
+  <div class="tip-box-text">Hourly: ₹30–80 · Daily: ₹150–400 · Monthly: ₹1000–3000 depending on area and amenities.</div>
   </div>
   </div>
 
   <!-- Dimensions -->
+  <div class="form-section">
+  <div class="form-label">Dimensions</div>
   <div class="grid grid-cols-2 gap-3">
   <div>
-  <label style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.25);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:6px">Length (m)</label>
-  <input id="in-len" type="number" oninput="calcPreview()" placeholder="5.0" class="ps-input text-center">
+  <label class="field-label">Length (m)</label>
+  <input id="in-len" type="number" step="0.1" min="0" oninput="calcPreview()" value="5" class="ps-input text-center">
   </div>
   <div>
-  <label style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.25);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:6px">Breadth (m)</label>
-  <input id="in-bre" type="number" oninput="calcPreview()" placeholder="3.0" class="ps-input text-center">
+  <label class="field-label">Breadth (m)</label>
+  <input id="in-bre" type="number" step="0.1" min="0" oninput="calcPreview()" value="3" class="ps-input text-center">
   </div>
   </div>
-  <div id="area-prev" class="text-center py-2 rounded-lg" style="font-family:var(--font-mono);font-size:0.75rem;color:rgba(255,255,255,0.25);background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04)">Area: 0.00 m²</div>
+  <div id="area-prev" class="area-preview">Area: 15.00 m²</div>
+  </div>
 
   <!-- Google Maps link -->
-  <div class="flex gap-2">
-  <input id="in-gmap" type="text" placeholder="Paste Google Maps link for exact location" class="ps-input flex-1">
-  <button onclick="parseMapUrl()" title="Extract coordinates"
-  class="p-3 rounded-xl flex-shrink-0 transition"
-  style="background:rgba(0,212,255,0.07);color:var(--cyan);border:1px solid rgba(0,212,255,0.18)">
+  <div class="form-section">
+  <div class="form-label">Location</div>
+  <div class="gmap-row">
+  <input id="in-gmap" type="text" inputmode="url" placeholder="Paste Google Maps link for exact location" class="ps-input gmap-input" onpaste="setTimeout(parseMapUrl,150)" onblur="if(this.value.trim())parseMapUrl()">
+  <button onclick="parseMapUrl()" title="Extract coordinates" type="button" class="gmap-btn">
   <i data-lucide="wand-2" class="w-4 h-4"></i>
   </button>
   </div>
+  <div class="location-actions">
+  <button type="button" onclick="useGpsForListing()" class="loc-action-btn">
+  <i data-lucide="crosshair" class="w-3.5 h-3.5"></i> Use GPS
+  </button>
+  </div>
+  <p class="form-hint">Paste link from Google Maps → Share → Copy link, or tap Use GPS</p>
   <div id="url-status"></div>
+  </div>
 
   <!-- Sold toggle -->
-  <div class="flex items-center gap-3 p-3.5 rounded-xl cursor-pointer"
-  style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.06)"
-  onclick="document.getElementById('in-sold').click()">
-  <input id="in-sold" type="checkbox" class="w-4 h-4" style="accent-color:var(--pink)">
-  <label for="in-sold" class="font-semibold cursor-pointer" style="font-family:var(--font-body);font-size:0.9rem;color:white">Mark as Sold / Booked</label>
-  </div>
+  <label class="sold-toggle" for="in-sold">
+  <input id="in-sold" type="checkbox" class="sold-checkbox">
+  <span class="sold-toggle-text">Mark as Sold / Booked</span>
+  </label>
 
   <!-- Pricing -->
-  <div class="rounded-xl p-4" style="background:rgba(155,93,229,0.04);border:1px solid rgba(155,93,229,0.14)">
-  <div style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.25);letter-spacing:0.12em;text-transform:uppercase;margin-bottom:1rem">Pricing (₹)</div>
+  <div class="pricing-box rounded-xl p-4">
+  <div class="pricing-box-title">Pricing (₹)</div>
   <div class="space-y-3">
   <div class="price-row">
-  <label style="font-family:var(--font-mono);font-size:0.75rem;color:rgba(255,255,255,0.35);width:5rem">Hourly ₹</label>
-  <input id="in-hourly" type="number" value="50" class="flex-1 text-right outline-none rounded-lg p-2.5" style="background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.07);color:var(--cyan);font-family:var(--font-mono);font-size:0.9rem">
+  <label class="price-label">Hourly ₹</label>
+  <input id="in-hourly" type="number" value="50" class="price-input price-input-hourly">
   </div>
   <div class="price-row">
-  <label style="font-family:var(--font-mono);font-size:0.75rem;color:rgba(255,255,255,0.35);width:5rem">Daily ₹</label>
-  <input id="in-daily" type="number" value="300" class="flex-1 text-right outline-none rounded-lg p-2.5" style="background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.07);color:var(--green);font-family:var(--font-mono);font-size:0.9rem">
+  <label class="price-label">Daily ₹</label>
+  <input id="in-daily" type="number" value="300" class="price-input price-input-daily">
   </div>
-  <div class="price-row" style="border-bottom:none">
-  <label style="font-family:var(--font-mono);font-size:0.75rem;color:rgba(255,255,255,0.35);width:5rem">Monthly ₹</label>
-  <input id="in-monthly" type="number" value="0" class="flex-1 text-right outline-none rounded-lg p-2.5" style="background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.07);color:var(--purple);font-family:var(--font-mono);font-size:0.9rem">
+  <div class="price-row price-row-last">
+  <label class="price-label">Monthly ₹</label>
+  <input id="in-monthly" type="number" value="0" class="price-input price-input-monthly">
   </div>
   </div>
-  <div style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.15);text-align:right;margin-top:10px">Auto = area × ₹10/m²</div>
+  <div class="pricing-auto-hint">Auto monthly = area × ₹100/m²</div>
   </div>
 
   <div class="flex gap-3 pt-1">
@@ -877,10 +1021,10 @@ async function renderDashboard() {
   <!-- LISTINGS -->
   <div class="lg:col-span-7">
   <div class="flex items-center gap-3 mb-5">
-  <h2 class="font-bold text-white flex items-center gap-2" style="font-family:var(--font-body);font-size:1rem">
-  <i data-lucide="layout-grid" class="w-5 h-5" style="color:rgba(255,255,255,0.28)"></i> Your Portfolio
+  <h2 class="portfolio-heading font-bold text-white flex items-center gap-2">
+  <i data-lucide="layout-grid" class="w-5 h-5"></i> Your Portfolio
   </h2>
-  <span class="px-2.5 py-0.5 rounded-full" style="background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.3);font-family:var(--font-mono);font-size:0.72rem">${myListings.length}</span>
+  <span class="portfolio-count">${myListings.length}</span>
   </div>
   <div class="space-y-3 overflow-y-auto pr-1" style="max-height:680px">
   ${myListings.length === 0
@@ -898,14 +1042,14 @@ async function renderDashboard() {
     <span class="badge ${l.is_sold ? 'badge-sold' : 'badge-active'}">${l.is_sold ? 'BOOKED' : 'ACTIVE'}</span>
     </div>
     ${l.area_landmark ? `<p class="flex items-center gap-1 mb-1.5" style="font-size:0.75rem;color:var(--cyan)"><i data-lucide="map-pin" class="w-3 h-3"></i>${l.area_landmark}</p>` : ''}
-    <p class="mb-2" style="font-size:0.78rem;color:rgba(255,255,255,0.28);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.desc}</p>
-    <div class="flex items-center gap-4 flex-wrap" style="font-family:var(--font-mono);font-size:0.75rem">
-    <span><span style="color:var(--cyan);font-weight:700">₹${l.price_hourly}</span><span style="color:rgba(255,255,255,0.2)">/hr</span></span>
-    <span><span style="color:var(--green);font-weight:700">₹${l.price_daily}</span><span style="color:rgba(255,255,255,0.2)">/day</span></span>
-    <span><span style="color:var(--purple);font-weight:700">₹${l.price_monthly}</span><span style="color:rgba(255,255,255,0.2)">/mo</span></span>
-    ${l.length && l.breadth ? `<span style="color:rgba(255,255,255,0.2)">${l.length}×${l.breadth}m = ${(l.length * l.breadth).toFixed(1)}m²</span>` : ''}
+    <p class="listing-desc mb-2">${l.desc}</p>
+    <div class="listing-prices flex items-center gap-3 flex-wrap">
+    <span><span class="price-val-cyan">₹${l.price_hourly}</span><span class="price-unit">/hr</span></span>
+    <span><span class="price-val-green">₹${l.price_daily}</span><span class="price-unit">/day</span></span>
+    <span><span class="price-val-purple">₹${l.price_monthly}</span><span class="price-unit">/mo</span></span>
+    ${l.length && l.breadth ? `<span class="listing-size">${l.length}×${l.breadth}m = ${(l.length * l.breadth).toFixed(1)}m²</span>` : ''}
     </div>
-    ${l.address_text ? `<div class="mt-2 truncate" style="font-family:var(--font-mono);font-size:0.65rem;color:rgba(255,255,255,0.18)">📍 ${l.address_text}</div>` : ''}
+    ${l.address_text ? `<div class="listing-address mt-2">📍 ${l.address_text}</div>` : ''}
     </div>
     <div class="flex flex-col gap-2 flex-shrink-0">
     <button onclick='loadForEdit(${JSON.stringify(l).replace(/'/g, "&apos;")})' class="p-2.5 rounded-xl transition" style="background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.07)"><i data-lucide="pencil" class="w-4 h-4"></i></button>
@@ -920,6 +1064,7 @@ async function renderDashboard() {
     </div>
     </div>`;
     lucide.createIcons();
+    calcPreview();
 }
 
 // ── FORM HELPERS ────────────────────────────────────────────────
@@ -930,7 +1075,7 @@ function calcPreview() {
   const el   = document.getElementById('area-prev');
   if (el) el.textContent = `Area: ${area.toFixed(2)} m²`;
   const monthly = document.getElementById('in-monthly');
-  if (monthly && area > 0) monthly.value = (area * 10).toFixed(0);
+  if (monthly && area > 0) monthly.value = (area * 100).toFixed(0);
 }
 
 function loadForEdit(l) {
@@ -1015,7 +1160,7 @@ function renderOwnerSignup() {
   <div class="min-h-screen flex items-center justify-center px-4 py-12 relative" style="background:var(--bg)">
   <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[350px] pointer-events-none" style="background:radial-gradient(ellipse,rgba(0,212,255,0.06),transparent 60%);filter:blur(40px)"></div>
 
-  <div class="w-full max-w-md relative z-10">
+  <div class="auth-page relative z-10">
   <div class="text-center mb-8">
   <div class="relative inline-block mb-5">
   <div class="deco-ring" style="width:64px;height:64px;top:-8px;left:-8px"></div>
@@ -1027,18 +1172,18 @@ function renderOwnerSignup() {
   </div>
 
   <div class="auth-card p-7 md:p-9">
-  <div id="step-1" class="space-y-4">
-  <div>
-  <label style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.28);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:7px">Your Name</label>
-  <input id="signup-name" type="text" placeholder="e.g. Priya Sharma" class="ps-input">
+  <div id="step-1" class="auth-form-stack">
+  <div class="auth-field">
+  <label class="auth-label" for="signup-name">Your Name</label>
+  <input id="signup-name" type="text" placeholder="e.g. Priya Sharma" class="ps-input auth-input" autocomplete="name">
   </div>
-  <div>
-  <label style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.28);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:7px">Phone Number</label>
-  <input id="signup-phone" type="tel" placeholder="10-digit mobile" class="ps-input" maxlength="10">
+  <div class="auth-field">
+  <label class="auth-label" for="signup-phone">Phone Number</label>
+  <input id="signup-phone" type="tel" placeholder="10-digit mobile" class="ps-input auth-input" maxlength="10" autocomplete="tel">
   </div>
-  <div>
-  <label style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.28);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:7px">Email Address</label>
-  <input id="signup-email" type="email" placeholder="OTP will be sent here" class="ps-input">
+  <div class="auth-field">
+  <label class="auth-label" for="signup-email">Email Address</label>
+  <input id="signup-email" type="email" placeholder="OTP will be sent here" class="ps-input auth-input" autocomplete="email">
   </div>
   <button id="btn-otp" onclick="sendOTP()" class="btn-glow w-full font-bold py-4 rounded-xl mt-1" style="background:var(--cyan);color:#05050f;font-family:var(--font-body);font-size:0.95rem">
   SEND OTP TO EMAIL
@@ -1050,9 +1195,9 @@ function renderOwnerSignup() {
   <p style="font-size:0.85rem;color:rgba(255,255,255,0.45)">OTP sent to</p>
   <p id="disp-email" style="font-family:var(--font-mono);color:var(--cyan);font-weight:700;font-size:0.95rem;margin-top:3px"></p>
   </div>
-  <div>
-  <label style="font-family:var(--font-mono);font-size:0.62rem;color:rgba(255,255,255,0.28);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:7px">Enter OTP</label>
-  <input id="signup-otp" type="text" placeholder="6-digit code" class="ps-input text-center font-bold" style="font-family:var(--font-mono);font-size:1.6rem;letter-spacing:0.35em" maxlength="6">
+  <div class="auth-field">
+  <label class="auth-label" for="signup-otp">Enter OTP</label>
+  <input id="signup-otp" type="text" placeholder="6-digit code" class="ps-input auth-input auth-input-otp text-center font-bold" maxlength="6" inputmode="numeric">
   </div>
   <button id="btn-verify" onclick="verifyOTP()" class="btn-glow w-full font-bold py-4 rounded-xl mt-4" style="background:var(--green);color:#05050f;font-family:var(--font-body);font-size:0.95rem">
   VERIFY &amp; ENTER

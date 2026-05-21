@@ -1,6 +1,6 @@
 # ParkoSpace — V2
 
-A global peer-to-peer parking marketplace. Space owners list their driveways and private parking areas. People looking for parking find and contact them directly through a live map. No middlemen, no booking fees.
+A Bengaluru-focused peer-to-peer parking marketplace. Space owners list their driveways and private parking areas. People looking for parking find and contact them directly through a live map. No middlemen, no booking fees.
 
 Built with Flask, Google Maps, and a dark-themed frontend.
 
@@ -10,7 +10,7 @@ Built with Flask, Google Maps, and a dark-themed frontend.
 
 **For people looking for parking**
 
-- Open the map and allow location access, or search for any area worldwide
+- Open the map and allow location access, or search any Bengaluru neighbourhood
 - Browse nearby parking spots shown as price pins on a live Google Map
 - Call the owner directly from the listing card
 - Navigate to the spot using the built-in Google Maps link
