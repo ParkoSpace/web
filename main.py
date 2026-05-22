@@ -181,30 +181,27 @@ def _bengaluru_query(text):
     return f'{t}, Bengaluru, Karnataka, India'
 
 # --- ADVANCED MAP PARSER ---
-_MAP_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9',
-}
-# Original parser UA — often better for maps.app.goo.gl redirect following
-_MAP_HEADERS_HEAD = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-}
+_MAP_UA_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+_MAP_UA_MOBILE = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
 
-def _extract_coords_from_text(text):
-    """Pull lat/lng from a URL or HTML snippet."""
+def _normalize_map_input(url):
+    url = (url or '').strip()
+    url = re.sub(r'[\u200b-\u200d\ufeff]', '', url)
+    if url and not re.match(r'^https?://', url, re.I):
+        url = 'https://' + url
+    return url
+
+def _coords_from_text(text):
     if not text:
         return None, None
-    patterns = [
+    for pat in (
         r'@(-?\d+\.\d+),(-?\d+\.\d+)',
         r'[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)',
+        r'!3d(-?\d+\.\d+).*?!4d(-?\d+\.\d+)',
         r'center=(-?\d+\.\d+)%2C(-?\d+\.\d+)',
         r'll=(-?\d+\.\d+),(-?\d+\.\d+)',
-        r'"lat(?:itude)?"\s*:\s*(-?\d+\.\d+).*?"lng(?:itude)?"\s*:\s*(-?\d+\.\d+)',
-        r'\"lat\"\s*:\s*(-?\d+\.\d+).*?\"lng\"\s*:\s*(-?\d+\.\d+)',
-    ]
-    for pat in patterns:
-        m = re.search(pat, text, re.IGNORECASE | re.DOTALL)
+    ):
+        m = re.search(pat, text, re.I)
         if m:
             return float(m.group(1)), float(m.group(2))
     lat_m = re.search(r'!3d(-?\d+\.\d+)', text)
@@ -213,155 +210,81 @@ def _extract_coords_from_text(text):
         return float(lat_m.group(1)), float(lng_m.group(1))
     return None, None
 
-def _extract_place_name(url):
-    for pat in (r'/place[s]?/([^/@?&]+)', r'/maps/search/([^/@?&]+)', r'[?&]q=([^&@]+)'):
-        m = re.search(pat, url, re.I)
+def _place_name_from_text(text):
+    if not text:
+        return None
+    for pat in (r'/place[s]?/([^/@?&]+)', r'/maps/search/([^/@?&]+)'):
+        m = re.search(pat, text, re.I)
         if m:
             name = urllib.parse.unquote_plus(m.group(1).replace('+', ' ')).strip()
             if name and not re.match(r'^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$', name):
                 return name
     return None
 
-def _geocode_place_name(name):
-    """Resolve a place name to coordinates (Google API, then Nominatim)."""
-    if not name:
-        return None, None, None
-    g_lat, g_lng, g_addr = _geocode_with_google(_bengaluru_query(name))
-    if g_lat and g_lng:
-        return g_lat, g_lng, g_addr
-    return _geocode_landmark(name)
-
-def _extract_place_id(url, html=''):
-    for src in (url, html or ''):
-        m = re.search(r'!1s(ChI[\w-]+)', src) or re.search(r'place_id[=:](ChI[\w-]+)', src)
-        if m:
-            return m.group(1)
-    return None
-
-def _geocode_with_google(query, place_id=None):
-    key = os.getenv('GOOGLE_MAPS_API_KEY', '')
-    if not key or key == 'YOUR_GOOGLE_MAPS_API_KEY':
-        return None, None, None
-    try:
-        if place_id:
-            resp = requests.get(
-                'https://maps.googleapis.com/maps/api/place/details/json',
-                params={'place_id': place_id, 'fields': 'geometry,formatted_address,name', 'key': key},
-                timeout=10,
-            )
-            data = resp.json()
-            if data.get('status') == 'OK' and data.get('result', {}).get('geometry'):
-                loc = data['result']['geometry']['location']
-                return loc['lat'], loc['lng'], data['result'].get('formatted_address') or data['result'].get('name')
-        resp = requests.get(
-            'https://maps.googleapis.com/maps/api/geocode/json',
-            params={'address': query, 'key': key},
-            timeout=10,
-        )
-        data = resp.json()
-        if data.get('status') == 'OK' and data.get('results'):
-            loc = data['results'][0]['geometry']['location']
-            return loc['lat'], loc['lng'], data['results'][0].get('formatted_address')
-    except Exception as e:
-        print(f' [WARN] Google geocode fallback: {e}')
-    return None, None, None
-
-def _normalize_map_url(url):
-    url = (url or '').strip()
-    if not url:
-        return url
-    if not re.match(r'^https?://', url, re.I):
-        url = 'https://' + url
-    return url
-
-def _parse_maps_url_core(final_url):
-    lat, lng = _extract_coords_from_text(final_url)
-    address = _extract_place_name(final_url)
-    return lat, lng, address
-
 def _fetch_maps_final_url(url):
-    """Follow redirects with HEAD (original) then GET fallback."""
-    http_session = requests.Session()
-    final_url = url
-    for headers in (_MAP_HEADERS_HEAD, _MAP_HEADERS, _MAP_HEADERS_HEAD):
+    session = requests.Session()
+    for ua in (_MAP_UA_DESKTOP, _MAP_UA_MOBILE):
+        headers = {'User-Agent': ua}
         try:
-            head_resp = http_session.head(url, allow_redirects=True, headers=headers, timeout=12)
-            if head_resp.url:
-                final_url = head_resp.url
-            if 'google.com/maps' in final_url and final_url != url:
-                return final_url, ''
-            lat, lng, _ = _parse_maps_url_core(final_url)
+            resp = session.head(url, allow_redirects=True, headers=headers, timeout=8)
+            final_url = resp.url
+            lat, lng = _coords_from_text(final_url)
             if lat and lng:
+                return final_url, ''
+            if 'google.com/maps' in final_url:
                 return final_url, ''
         except Exception:
             pass
-    try:
-        resp = http_session.get(url, allow_redirects=True, headers=_MAP_HEADERS, timeout=15)
-        final_url = resp.url
-        for hop in resp.history:
-            lat, lng, _ = _parse_maps_url_core(hop.url)
-            if lat and lng:
-                return hop.url, resp.text or ''
-        return final_url, resp.text or ''
-    except Exception:
-        return final_url, ''
+        try:
+            resp = session.get(url, allow_redirects=True, headers=headers, timeout=12)
+            final_url = resp.url
+            for hop in resp.history:
+                lat, lng = _coords_from_text(hop.url)
+                if lat and lng:
+                    return hop.url, resp.text or ''
+            return final_url, resp.text or ''
+        except Exception:
+            pass
+    return url, ''
 
 def resolve_google_maps_url(url):
     try:
-        url = _normalize_map_url(url)
+        url = _normalize_map_input(url)
         if not url:
             return None, None, None
 
-        direct = re.match(r'^(-?\d+\.?\d*)\s*[,]\s*(-?\d+\.?\d*)\s*$', url)
-        if direct:
-            return float(direct.group(1)), float(direct.group(2)), 'Pinned Location'
+        lat, lng = _coords_from_text(url)
+        address = _place_name_from_text(url)
 
-        lat, lng = _extract_coords_from_text(url)
-        address = _extract_place_name(url)
-        if lat and lng:
-            if not address:
-                try:
-                    geolocator = Nominatim(user_agent='parkospace_pro_v1')
-                    location = geolocator.reverse(f'{lat}, {lng}', language='en', exactly_one=True)
-                    address = location.address if location else 'Pinned Location'
-                except Exception:
-                    address = 'Pinned Location'
-            return lat, lng, address
-
-        if address:
-            g_lat, g_lng, g_addr = _geocode_place_name(address)
-            if g_lat and g_lng:
-                return g_lat, g_lng, g_addr or address
-
-        final_url, html = _fetch_maps_final_url(url)
-        lat, lng, address = _parse_maps_url_core(final_url)
         if not lat:
-            lat, lng = _extract_coords_from_text(html[:80000])
-        if not address:
-            address = _extract_place_name(final_url) or _extract_place_name(url)
-
-        place_id = _extract_place_id(final_url, html)
-        if (not lat or not lng) and (place_id or address):
-            g_lat, g_lng, g_addr = _geocode_with_google(address or url, place_id=place_id)
-            if g_lat and g_lng:
-                lat, lng = g_lat, g_lng
-                address = g_addr or address
-            elif address:
-                n_lat, n_lng, n_addr = _geocode_landmark(address)
-                if n_lat and n_lng:
-                    lat, lng, address = n_lat, n_lng, n_addr or address
-
-        if lat and lng:
+            final_url, html = _fetch_maps_final_url(url)
+            lat, lng = _coords_from_text(final_url)
+            if not lat and html:
+                lat, lng = _coords_from_text(html[:80000])
             if not address:
-                try:
-                    geolocator = Nominatim(user_agent='parkospace_pro_v1')
-                    location = geolocator.reverse(f'{lat}, {lng}', language='en', exactly_one=True)
-                    address = location.address if location else 'Pinned Location'
-                except Exception:
-                    address = 'Pinned Location'
-            return lat, lng, address
+                address = _place_name_from_text(final_url) or _place_name_from_text(url)
 
-        return None, None, None
+        if not lat and address:
+            try:
+                geolocator = Nominatim(user_agent='parkospace_search_v1', timeout=6)
+                location = geolocator.geocode(_bengaluru_query(address), language='en', exactly_one=True)
+                if location:
+                    lat, lng = location.latitude, location.longitude
+                    address = location.address
+            except Exception:
+                pass
+
+        if lat and lng and not address:
+            address = 'Location Detected'
+            try:
+                geolocator = Nominatim(user_agent='parkospace_pro_v1', timeout=4)
+                location = geolocator.reverse(f'{lat}, {lng}', language='en', exactly_one=True)
+                if location and location.address:
+                    address = location.address
+            except Exception:
+                pass
+
+        return lat, lng, address
 
     except Exception as e:
         print(f' [ERROR] Map Parsing Error: {e}')
@@ -566,60 +489,52 @@ def get_listings():
         print(f"Error fetching listings: {e}")
         return jsonify([])
 
-def _geocode_landmark(text):
-    if not text:
-        return None, None, None
-    query = _bengaluru_query(text)
-    g_lat, g_lng, g_addr = _geocode_with_google(query)
-    if g_lat and g_lng:
-        return g_lat, g_lng, g_addr
-    try:
-        geolocator = Nominatim(user_agent='parkospace_search_v1')
-        location = geolocator.geocode(query, language='en', exactly_one=True)
-        if location:
-            return location.latitude, location.longitude, location.address
-    except Exception as e:
-        print(f' [WARN] Landmark geocode: {e}')
-    return None, None, None
-
-@app.route('/api/utils/expand-map-url', methods=['POST'])
-def expand_map_url():
-    url = _normalize_map_url((request.json or {}).get('url', ''))
-    if not url:
-        return jsonify({'success': False, 'error': 'No URL provided'})
-    try:
-        final_url, html = _fetch_maps_final_url(url)
-        lat, lng, address = _parse_maps_url_core(final_url)
-        if not lat:
-            lat, lng = _extract_coords_from_text(html[:50000])
-        if lat and lng:
-            return jsonify({'success': True, 'expanded_url': final_url, 'lat': lat, 'lng': lng, 'address': address})
-        if final_url != url and 'google.com/maps' in final_url:
-            return jsonify({'success': True, 'expanded_url': final_url})
-        return jsonify({'success': False, 'expanded_url': final_url})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e), 'expanded_url': url})
-
 @app.route('/api/utils/parse-map-url', methods=['POST'])
 def parse_map_url():
-    data = request.json or {}
-    url = _normalize_map_url(data.get('url', ''))
-    if not url:
+    data = request.get_json(silent=True) or {}
+    url = (data.get('url') or request.form.get('url') or '').strip()
+    landmark = (data.get('landmark') or '').strip()
+    if not url and not landmark:
         return jsonify({"success": False, "error": "No URL provided"})
 
-    lat, lng, address = resolve_google_maps_url(url)
+    lat, lng, address = (None, None, None)
+    if url:
+        lat, lng, address = resolve_google_maps_url(url)
 
     if not lat:
-        landmark = data.get('landmark', '')
-        place = _extract_place_name(url)
-        lat, lng, address = _geocode_landmark(landmark or place or '')
+        if landmark:
+            try:
+                geolocator = Nominatim(user_agent='parkospace_search_v1', timeout=6)
+                location = geolocator.geocode(_bengaluru_query(landmark), language='en', exactly_one=True)
+                if location:
+                    lat, lng = location.latitude, location.longitude
+                    address = location.address
+            except Exception:
+                pass
 
     if lat and lng:
         return jsonify({"success": True, "lat": lat, "lng": lng, "address": address or "Location Detected"})
-    return jsonify({
-        "success": False,
-        "error": "Could not detect location. Try GPS, paste coordinates (12.97, 77.59), or a full Google Maps link."
-    })
+    else:
+        return jsonify({"success": False, "error": "Could not detect location. Try a standard Google Maps link."})
+
+@app.route('/api/utils/reverse-geocode', methods=['POST'])
+def reverse_geocode():
+    data = request.get_json(silent=True) or {}
+    try:
+        lat = float(data.get('lat'))
+        lng = float(data.get('lng'))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Invalid coordinates"})
+
+    try:
+        geolocator = Nominatim(user_agent='parkospace_pro_v1', timeout=5)
+        location = geolocator.reverse(f'{lat}, {lng}', language='en', exactly_one=True)
+        if location and location.address:
+            return jsonify({"success": True, "lat": lat, "lng": lng, "address": location.address})
+    except Exception as e:
+        print(f' [WARN] reverse-geocode: {e}')
+
+    return jsonify({"success": True, "lat": lat, "lng": lng, "address": "Current GPS Location"})
 
 @app.route('/api/utils/search-location', methods=['POST'])
 def search_location():

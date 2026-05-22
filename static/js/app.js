@@ -278,160 +278,133 @@ function initPlacesAutocomplete() {
 }
 
 // ── MAP URL PARSER ──────────────────────────────────────────────
-function parseCoordsClient(url) {
-  const direct = url.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+function normalizeMapUrl(raw) {
+  let url = (raw || '').trim().replace(/[\u200b-\u200d\ufeff]/g, '');
+  if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+  return url;
+}
+
+function parseCoordsFromUrl(raw) {
+  const url = normalizeMapUrl(raw);
+  if (!url) return null;
+  const direct = url.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/);
   if (direct) return { lat: parseFloat(direct[1]), lng: parseFloat(direct[2]), address: 'Pinned Location' };
   const patterns = [
     /@(-?\d+\.\d+),(-?\d+\.\d+)/,
     /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/,
     /!3d(-?\d+\.\d+).*?!4d(-?\d+\.\d+)/,
     /center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i,
-    /!3d(-?\d+\.\d+)[^!]*!4d(-?\d+\.\d+)/,
     /ll=(-?\d+\.\d+),(-?\d+\.\d+)/,
   ];
   for (const p of patterns) {
     const m = url.match(p);
-    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]), address: null };
-  }
-  const embedded = url.match(/link=([^&]+)/);
-  if (embedded) return parseCoordsClient(decodeURIComponent(embedded[1])) || null;
-  const place = url.match(/\/place[s]?\/([^/@?&]+)/i);
-  if (place) {
-    const name = decodeURIComponent(place[1].replace(/\+/g, ' ')).trim();
-    if (name && !/^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$/.test(name)) return { address: name };
+    if (m) {
+      const place = url.match(/\/place[s]?\/([^/@?&]+)/i);
+      let address = null;
+      if (place) {
+        try { address = decodeURIComponent(place[1].replace(/\+/g, ' ')).trim(); } catch (_) {}
+      }
+      return { lat: parseFloat(m[1]), lng: parseFloat(m[2]), address: address || 'Location Detected' };
+    }
   }
   return null;
 }
 
-async function geocodeWithGoogleMaps(query) {
-  const loaded = await loadGoogleMaps();
-  if (!loaded || !window.google?.maps?.Geocoder) return null;
-  const geocoder = new google.maps.Geocoder();
-  return new Promise((resolve) => {
-    geocoder.geocode({
-      address: query.includes('Bengaluru') || query.includes('Bangalore') ? query : `${query}, Bengaluru, Karnataka, India`,
-      region: 'IN',
-      bounds: new google.maps.LatLngBounds(
-        { lat: BENGALURU_BOUNDS.south, lng: BENGALURU_BOUNDS.west },
-        { lat: BENGALURU_BOUNDS.north, lng: BENGALURU_BOUNDS.east }
-      ),
-    }, (results, status) => {
-      if (status === 'OK' && results?.[0]) {
-        resolve({
-          lat: results[0].geometry.location.lat(),
-          lng: results[0].geometry.location.lng(),
-          address: results[0].formatted_address,
-        });
-      } else resolve(null);
-    });
-  });
+function showMapUrlSuccess(statusDiv, data) {
+  state.parsedLocation = { lat: data.lat, lng: data.lng, address: data.address };
+  statusDiv.innerHTML = `
+  <div style="margin-top:8px;background:rgba(6,255,165,0.06);border:1px solid rgba(6,255,165,0.2);padding:12px;border-radius:12px;font-size:0.78rem">
+  <div style="color:var(--green);font-weight:700;display:flex;align-items:center;gap:4px;margin-bottom:4px"><i data-lucide="check-circle" class="w-3 h-3"></i> Location Verified</div>
+  <div style="color:#e2e8f0;font-weight:600">${data.address}</div>
+  <div style="font-family:var(--font-mono);color:rgba(255,255,255,0.3);margin-top:4px;font-size:0.65rem">${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</div>
+  </div>`;
+  lucide.createIcons();
+  toast('Location extracted!', 'success');
+}
+
+function mapUrlErrorHtml(message) {
+  return `<span style="color:var(--pink);font-size:0.75rem;font-weight:700;display:block;margin-bottom:8px">✕ ${message}</span>
+  <button type="button" onclick="useGpsForListing()" class="gps-fallback-btn">
+  <i data-lucide="crosshair" class="w-4 h-4"></i> Use GPS instead
+  </button>`;
 }
 
 function useGpsForListing() {
+  const urlEl     = document.getElementById('in-gmap');
   const statusDiv = document.getElementById('url-status');
   if (!navigator.geolocation) {
-    statusDiv.innerHTML = '<span class="url-status-err">GPS not supported on this device</span>';
+    statusDiv.innerHTML = mapUrlErrorHtml('GPS not supported on this device');
+    lucide.createIcons();
     return;
   }
-  statusDiv.innerHTML = '<span class="url-status-loading"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Getting GPS location…</span>';
+  statusDiv.innerHTML = `<span style="color:var(--cyan);font-size:0.75rem;display:flex;align-items:center;gap:4px"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Getting GPS location…</span>`;
   lucide.createIcons();
   navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const { latitude: lat, longitude: lng } = pos.coords;
-      showLocationVerified(statusDiv, { lat, lng, address: 'Current GPS Location' });
-      toast('GPS location set!', 'success');
+    async (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      urlEl.value = `https://www.google.com/maps?q=${lat},${lng}`;
+      let address = 'Current GPS Location';
+      try {
+        const res  = await fetch('/api/utils/reverse-geocode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lat, lng }),
+        });
+        const data = await res.json();
+        if (data.success && data.address) address = data.address;
+      } catch (_) {}
+      showMapUrlSuccess(statusDiv, { lat, lng, address });
     },
     () => {
-      statusDiv.innerHTML = '<span class="url-status-err">Could not get GPS. Allow location permission and try again.</span>';
+      statusDiv.innerHTML = mapUrlErrorHtml('Could not get GPS — allow location permission in browser settings');
+      lucide.createIcons();
+      toast('Allow location permission and try GPS again', 'error');
     },
-    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
   );
-}
-
-function showLocationVerified(statusDiv, data) {
-  state.parsedLocation = { lat: data.lat, lng: data.lng, address: data.address };
-  statusDiv.innerHTML = `
-  <div class="url-status-ok">
-  <div class="url-status-title"><i data-lucide="check-circle" class="w-3 h-3"></i> Location Verified</div>
-  <div class="url-status-addr">${data.address || 'Pinned Location'}</div>
-  <div class="url-status-coords">${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</div>
-  </div>`;
-  lucide.createIcons();
 }
 
 async function parseMapUrl() {
   const urlEl     = document.getElementById('in-gmap');
   const statusDiv = document.getElementById('url-status');
+  const url       = normalizeMapUrl(urlEl.value);
   const landmark  = document.getElementById('in-landmark')?.value?.trim() || '';
-  let url         = urlEl.value.trim();
-  if (!url) { toast('Paste a Google Maps link first', 'error'); return; }
-  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  if (!url && !landmark) { toast('Paste a Maps link or fill Area/Landmark, or use GPS', 'error'); return; }
+  if (url) urlEl.value = url;
 
-  let local = parseCoordsClient(url);
-  if (local?.lat != null && local?.lng != null) {
-    showLocationVerified(statusDiv, { lat: local.lat, lng: local.lng, address: local.address || 'Pinned Location' });
-    toast('Location extracted!', 'success');
+  const local = url ? parseCoordsFromUrl(url) : null;
+  if (local) {
+    showMapUrlSuccess(statusDiv, local);
     return;
   }
 
-  if (local?.address) {
-    const geo = await geocodeWithGoogleMaps(local.address);
-    if (geo) {
-      showLocationVerified(statusDiv, geo);
-      toast('Location extracted!', 'success');
-      return;
-    }
-  }
-
-  statusDiv.innerHTML = '<span class="url-status-loading"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Reading map link…</span>';
+  statusDiv.innerHTML = `<span style="color:var(--cyan);font-size:0.75rem;display:flex;align-items:center;gap:4px"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Reading map link…</span>`;
   lucide.createIcons();
 
   try {
-    if (/goo\.gl/i.test(url)) {
-      const exRes = await fetch('/api/utils/expand-map-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
-      const ex = await exRes.json();
-      if (ex.expanded_url && ex.expanded_url !== url) {
-        urlEl.value = ex.expanded_url;
-        url = ex.expanded_url;
-      }
-      if (ex.lat != null && ex.lng != null) {
-        showLocationVerified(statusDiv, { lat: ex.lat, lng: ex.lng, address: ex.address || 'Pinned Location' });
-        toast('Location extracted!', 'success');
-        return;
-      }
-    }
-
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000);
     const res  = await fetch('/api/utils/parse-map-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, landmark }),
+      signal: ctrl.signal,
     });
+    clearTimeout(timer);
     const data = await res.json();
     if (data.success) {
-      showLocationVerified(statusDiv, data);
-      toast('Location extracted!', 'success');
-      return;
+      showMapUrlSuccess(statusDiv, data);
+    } else {
+      statusDiv.innerHTML = mapUrlErrorHtml(data.error || 'Could not detect location');
+      lucide.createIcons();
+      toast(data.error || 'Could not detect location', 'error');
     }
-
-    const geoQuery = landmark || local?.address;
-    if (geoQuery) {
-      const geo = await geocodeWithGoogleMaps(geoQuery);
-      if (geo) {
-        showLocationVerified(statusDiv, geo);
-        toast('Location extracted!', 'success');
-        return;
-      }
-    }
-
-    statusDiv.innerHTML = `<span class="url-status-err">✕ ${data.error}</span>
-    <button type="button" onclick="useGpsForListing()" class="gps-fallback-btn">Use my GPS location instead</button>`;
-    lucide.createIcons();
   } catch (e) {
-    statusDiv.innerHTML = '<span class="url-status-err">✕ Connection error. Check your network and try again.</span>';
+    statusDiv.innerHTML = mapUrlErrorHtml(e.name === 'AbortError' ? 'Request timed out' : 'Connection error');
+    lucide.createIcons();
+    if (e.name === 'AbortError') toast('Request timed out — try GPS', 'error');
+    else toast('Connection error — try GPS', 'error');
   }
 }
 
@@ -970,7 +943,7 @@ async function renderDashboard() {
   <div class="form-section">
   <div class="form-label">Location</div>
   <div class="gmap-row">
-  <input id="in-gmap" type="text" inputmode="url" placeholder="Paste Google Maps link for exact location" class="ps-input gmap-input" onpaste="setTimeout(parseMapUrl,150)" onblur="if(this.value.trim())parseMapUrl()">
+  <input id="in-gmap" type="text" inputmode="url" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Paste Google Maps link for exact location" class="ps-input gmap-input" onpaste="setTimeout(parseMapUrl,200)">
   <button onclick="parseMapUrl()" title="Extract coordinates" type="button" class="gmap-btn">
   <i data-lucide="wand-2" class="w-4 h-4"></i>
   </button>
@@ -980,7 +953,6 @@ async function renderDashboard() {
   <i data-lucide="crosshair" class="w-3.5 h-3.5"></i> Use GPS
   </button>
   </div>
-  <p class="form-hint">Paste link from Google Maps → Share → Copy link, or tap Use GPS</p>
   <div id="url-status"></div>
   </div>
 

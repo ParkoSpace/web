@@ -938,6 +938,13 @@ scrollbar-color: rgba(0,212,255,0.2) transparent;
   font-size: 0.68rem;
 }
 
+.url-status-expanded {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--green);
+  margin-top: 0.5rem;
+}
+
 .url-status-err {
   display: block;
   color: var(--pink);
