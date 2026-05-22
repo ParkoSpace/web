@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#00d4ff">
-    <meta name="description" content="Find and list parking spaces in Bengaluru">
+    <meta name="description" content="Find and list parking spaces anywhere">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}?v=16">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}?v=21">
     <style>
         .gm-style .gm-style-iw-c { background:rgba(8,8,22,0.97)!important; border:1px solid rgba(0,212,255,0.35)!important; border-radius:14px!important; box-shadow:0 0 40px rgba(0,212,255,0.15),0 8px 40px rgba(0,0,0,0.7)!important; padding:0!important; }
         .gm-style .gm-style-iw-d { overflow:hidden!important; padding:14px 18px!important; }
@@ -33,7 +33,7 @@
 </head>
 <body>
     <div id="app"></div>
-    <script src="{{ url_for('static', filename='js/app.js') }}?v=16"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=21"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {

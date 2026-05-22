@@ -1,7 +1,7 @@
 {
   "name": "ParkoSpace",
   "short_name": "ParkoSpace",
-  "description": "Find and list parking spaces in Bengaluru",
+  "description": "Find and list parking spaces anywhere",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#06060f",

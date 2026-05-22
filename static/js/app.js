@@ -21,11 +21,11 @@ const state = {
   _radiusTm: null,
   _gmapsLoaded: false,
   _gmapsKey: '',
+  _gmapsMapId: '6062647ef5491f7110b5de54',
 };
 
-// Default map center: Bengaluru
-const BENGALURU_DEFAULT = { lat: 12.9716, lng: 77.5946 };
-const BENGALURU_BOUNDS = { south: 12.834, west: 77.460, north: 13.143, east: 77.780 };
+// Default map center when GPS is unavailable (wide India view)
+const MAP_DEFAULT = { lat: 20.5937, lng: 78.9629 };
 
 // ── TOAST ──────────────────────────────────────────────────────
 function toast(msg, type = 'info') {
@@ -51,6 +51,7 @@ async function loadGoogleMaps() {
       return false;
     }
     state._gmapsKey = cfg.googleMapsApiKey;
+    if (cfg.googleMapsMapId) state._gmapsMapId = cfg.googleMapsMapId;
   } catch (e) {
     console.error('[Maps] Could not fetch config:', e);
     return false;
@@ -58,8 +59,10 @@ async function loadGoogleMaps() {
 
   return new Promise((resolve) => {
     window._gmapsCallback = () => { state._gmapsLoaded = true; resolve(true); };
+    const mapIds = encodeURIComponent(state._gmapsMapId);
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${state._gmapsKey}&libraries=places&callback=_gmapsCallback&language=en&region=IN`;
+    // map_ids + v=weekly required for cloud styles (monochrome / light / hybrid)
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${state._gmapsKey}&loading=async&v=weekly&libraries=places,marker&map_ids=${mapIds}&callback=_gmapsCallback&language=en`;
     script.async = true;
     script.defer = true;
     script.onerror = () => { console.error('[Maps] Failed to load Google Maps SDK'); resolve(false); };
@@ -180,7 +183,7 @@ function updateMapMarkers() {
       content: pin,
     });
 
-    marker.addEventListener('click', () => {
+    bindAdvancedMarkerClick(marker, () => {
       iw.setContent(buildInfoWindowHtml(l));
       iw.open(state.map, marker);
       setTimeout(() => lucide.createIcons(), 50);
@@ -249,12 +252,6 @@ function initPlacesAutocomplete() {
   if (!input || !state._gmapsLoaded) return;
 
   const ac = new google.maps.places.Autocomplete(input, {
-    bounds: new google.maps.LatLngBounds(
-      { lat: BENGALURU_BOUNDS.south, lng: BENGALURU_BOUNDS.west },
-      { lat: BENGALURU_BOUNDS.north, lng: BENGALURU_BOUNDS.east }
-    ),
-    strictBounds: false,
-    componentRestrictions: { country: 'in' },
     fields: ['geometry', 'formatted_address', 'name'],
   });
 
@@ -284,42 +281,62 @@ function normalizeMapUrl(raw) {
   return url;
 }
 
+function buildExpandedMapUrl(lat, lng, address) {
+  const label = encodeURIComponent((address || 'Location').split(',')[0].slice(0, 100));
+  const la = Number(lat).toFixed(7);
+  const ln = Number(lng).toFixed(7);
+  return `https://www.google.com/maps/place/${label}/@${la},${ln},17z/data=!3m1!4b1!4m6!3m5!1s0:0!8m2!3d${la}!4d${ln}`;
+}
+
 function parseCoordsFromUrl(raw) {
   const url = normalizeMapUrl(raw);
   if (!url) return null;
   const direct = url.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/);
-  if (direct) return { lat: parseFloat(direct[1]), lng: parseFloat(direct[2]), address: 'Pinned Location' };
-  const patterns = [
-    /@(-?\d+\.\d+),(-?\d+\.\d+)/,
-    /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/,
-    /!3d(-?\d+\.\d+).*?!4d(-?\d+\.\d+)/,
-    /center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i,
-    /ll=(-?\d+\.\d+),(-?\d+\.\d+)/,
-  ];
-  for (const p of patterns) {
-    const m = url.match(p);
-    if (m) {
-      const place = url.match(/\/place[s]?\/([^/@?&]+)/i);
-      let address = null;
-      if (place) {
-        try { address = decodeURIComponent(place[1].replace(/\+/g, ' ')).trim(); } catch (_) {}
-      }
-      return { lat: parseFloat(m[1]), lng: parseFloat(m[2]), address: address || 'Location Detected' };
+  if (direct) {
+    const lat = parseFloat(direct[1]);
+    const lng = parseFloat(direct[2]);
+    return { lat, lng, address: 'Pinned Location', expanded_url: buildExpandedMapUrl(lat, lng, 'Pinned Location') };
+  }
+  let lat = null;
+  let lng = null;
+  const pin3d = url.match(/!3d(-?\d+\.\d+).*?!4d(-?\d+\.\d+)/);
+  if (pin3d) {
+    lat = parseFloat(pin3d[1]);
+    lng = parseFloat(pin3d[2]);
+  } else {
+    const patterns = [
+      /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/,
+      /center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i,
+      /ll=(-?\d+\.\d+),(-?\d+\.\d+)/,
+    ];
+    for (const p of patterns) {
+      const m = url.match(p);
+      if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); break; }
     }
   }
-  return null;
+  if (lat == null || lng == null) return null;
+  let address = 'Location Detected';
+  const place = url.match(/\/place[s]?\/([^/@?&]+)/i);
+  if (place) {
+    try { address = decodeURIComponent(place[1].replace(/\+/g, ' ')).trim() || address; } catch (_) {}
+  }
+  return { lat, lng, address, expanded_url: buildExpandedMapUrl(lat, lng, address) };
 }
 
-function showMapUrlSuccess(statusDiv, data) {
+function showMapUrlSuccess(statusDiv, data, urlEl) {
+  const expanded = data.expanded_url || buildExpandedMapUrl(data.lat, data.lng, data.address);
   state.parsedLocation = { lat: data.lat, lng: data.lng, address: data.address };
+  if (urlEl) urlEl.value = expanded;
   statusDiv.innerHTML = `
   <div style="margin-top:8px;background:rgba(6,255,165,0.06);border:1px solid rgba(6,255,165,0.2);padding:12px;border-radius:12px;font-size:0.78rem">
   <div style="color:var(--green);font-weight:700;display:flex;align-items:center;gap:4px;margin-bottom:4px"><i data-lucide="check-circle" class="w-3 h-3"></i> Location Verified</div>
   <div style="color:#e2e8f0;font-weight:600">${data.address}</div>
   <div style="font-family:var(--font-mono);color:rgba(255,255,255,0.3);margin-top:4px;font-size:0.65rem">${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</div>
+  <div style="color:rgba(0,212,255,0.55);font-size:0.65rem;margin-top:6px">Link updated with coordinates</div>
   </div>`;
   lucide.createIcons();
-  toast('Location extracted!', 'success');
+  toast('Location set — link updated with coordinates', 'success');
 }
 
 function mapUrlErrorHtml(message) {
@@ -343,8 +360,8 @@ function useGpsForListing() {
     async (pos) => {
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
-      urlEl.value = `https://www.google.com/maps?q=${lat},${lng}`;
       let address = 'Current GPS Location';
+      let expanded_url = buildExpandedMapUrl(lat, lng, address);
       try {
         const res  = await fetch('/api/utils/reverse-geocode', {
           method: 'POST',
@@ -352,9 +369,12 @@ function useGpsForListing() {
           body: JSON.stringify({ lat, lng }),
         });
         const data = await res.json();
-        if (data.success && data.address) address = data.address;
+        if (data.success) {
+          if (data.address) address = data.address;
+          if (data.expanded_url) expanded_url = data.expanded_url;
+        }
       } catch (_) {}
-      showMapUrlSuccess(statusDiv, { lat, lng, address });
+      showMapUrlSuccess(statusDiv, { lat, lng, address, expanded_url }, urlEl);
     },
     () => {
       statusDiv.innerHTML = mapUrlErrorHtml('Could not get GPS — allow location permission in browser settings');
@@ -373,28 +393,22 @@ async function parseMapUrl() {
   if (!url && !landmark) { toast('Paste a Maps link or fill Area/Landmark, or use GPS', 'error'); return; }
   if (url) urlEl.value = url;
 
-  const local = url ? parseCoordsFromUrl(url) : null;
-  if (local) {
-    showMapUrlSuccess(statusDiv, local);
-    return;
-  }
-
-  statusDiv.innerHTML = `<span style="color:var(--cyan);font-size:0.75rem;display:flex;align-items:center;gap:4px"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Reading map link…</span>`;
+  statusDiv.innerHTML = `<span style="color:var(--cyan);font-size:0.75rem;display:flex;align-items:center;gap:4px"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Geocoding & updating link…</span>`;
   lucide.createIcons();
 
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 25000);
+    const timer = setTimeout(() => ctrl.abort(), 30000);
     const res  = await fetch('/api/utils/parse-map-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, landmark }),
+      body: JSON.stringify({ url: url || '', landmark }),
       signal: ctrl.signal,
     });
     clearTimeout(timer);
     const data = await res.json();
     if (data.success) {
-      showMapUrlSuccess(statusDiv, data);
+      showMapUrlSuccess(statusDiv, data, urlEl);
     } else {
       statusDiv.innerHTML = mapUrlErrorHtml(data.error || 'Could not detect location');
       lucide.createIcons();
@@ -462,7 +476,7 @@ function renderLanding() {
   <img src="/static/logo.png" alt="ParkoSpace" style="height:36px;width:36px;object-fit:contain">
   <div style="font-family:var(--font-display);font-size:1.6rem;letter-spacing:0.04em;color:var(--cyan);line-height:1">
   PARKO<span style="color:rgba(255,255,255,0.6)">SPACE</span>
-  <span style="display:block;font-family:var(--font-mono);font-size:0.5rem;color:rgba(255,255,255,0.2);letter-spacing:0.2em;margin-top:2px">BENGALURU · PARK SMARTER</span>
+  <span style="display:block;font-family:var(--font-mono);font-size:0.5rem;color:rgba(255,255,255,0.2);letter-spacing:0.2em;margin-top:2px">PARK SMARTER · ANYWHERE</span>
   </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
@@ -552,7 +566,7 @@ function renderLanding() {
 
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px">
   ${[
-    { n:'01', icon:'map-pin',    title:'Find Your Area',    desc:'Search any Bengaluru neighbourhood or tap GPS. Verified parking spots appear on a live Google Map.',          c:'var(--cyan)'   },
+    { n:'01', icon:'map-pin',    title:'Find Your Area',    desc:'Search any city or neighbourhood, or tap GPS. Verified parking spots appear on a live Google Map.',          c:'var(--cyan)'   },
     { n:'02', icon:'phone-call', title:'Contact the Owner', desc:'Call the space owner directly — no middleman, no booking fee. Just a direct phone call.',                   c:'var(--purple)' },
     { n:'03', icon:'car',        title:'Park & Go',         desc:'Navigate with Google Maps, reach the spot, and settle with the owner directly. Done.',                        c:'var(--green)'  },
   ].map(({ n, icon, title, desc, c }) => `
@@ -573,9 +587,9 @@ function renderLanding() {
   <footer style="padding:40px 24px;text-align:center;border-top:1px solid rgba(255,255,255,0.05)">
   <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:10px">
   <img src="/static/logo.png" alt="Logo" style="height:22px;width:22px;object-fit:contain;opacity:0.5">
-  <span style="font-family:var(--font-display);font-size:1.1rem;color:var(--cyan);letter-spacing:0.06em">PARKOSPACE<span style="color:rgba(255,255,255,0.28)"> BENGALURU</span></span>
+  <span style="font-family:var(--font-display);font-size:1.1rem;color:var(--cyan);letter-spacing:0.06em">PARKOSPACE</span>
   </div>
-  <p style="font-family:var(--font-mono);font-size:0.6rem;color:rgba(255,255,255,0.15);letter-spacing:0.08em">BENGALURU PARKING MARKETPLACE · MIT LICENSE · 2026</p>
+  <p style="font-family:var(--font-mono);font-size:0.6rem;color:rgba(255,255,255,0.15);letter-spacing:0.08em">PARKING MARKETPLACE · MIT LICENSE · 2026</p>
   </footer>
 
   </div>`;
@@ -588,18 +602,18 @@ function goToMap() {
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
       (pos) => { state.userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude }; buildMapUI(); },
-                                             ()    => { state.userLoc = BENGALURU_DEFAULT; buildMapUI(); toast('Showing Bengaluru — enable GPS or search your area', 'info'); },
+                                             ()    => { state.userLoc = MAP_DEFAULT; buildMapUI(); toast('Enable GPS or search your area on the map', 'info'); },
                                              { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
     );
   } else {
-    state.userLoc = BENGALURU_DEFAULT;
+    state.userLoc = MAP_DEFAULT;
     buildMapUI();
-    toast('Showing Bengaluru — enable GPS or search your area', 'info');
+    toast('Enable GPS or search your area on the map', 'info');
   }
 }
 
 async function fetchAndRenderListings() {
-  const loc = state.userLoc || BENGALURU_DEFAULT;
+  const loc = state.userLoc || MAP_DEFAULT;
   const res  = await fetch(`/api/listings?lat=${loc.lat}&lng=${loc.lng}&radius=${state.radius}`);
   state.listings = await res.json();
   updateMapMarkers();
@@ -626,7 +640,7 @@ function buildMapUI() {
   <i data-lucide="search" class="w-4 h-4"></i>
   </span>
   <input id="map-search-input" type="text"
-  placeholder="Search Bengaluru area (e.g. Koramangala, Indiranagar)…"
+  placeholder="Search city or area (e.g. Mumbai, Delhi, London)…"
   onkeypress="searchLocation(event)"
   class="w-full py-2.5 pl-10 pr-4 rounded-full outline-none transition"
   style="background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.08);color:white;font-family:var(--font-body);font-size:0.9rem">
@@ -658,8 +672,8 @@ function buildMapUI() {
   <div id="sidebar-list" class="p-3 space-y-3 pb-20"></div>
   </div>
 
-  <!-- Google Map -->
-  <div id="map-container" class="flex-1 relative" style="background:#05050e"></div>
+  <!-- Google Map (hybrid + cloud style from Map ID) -->
+  <div id="map-container" class="flex-1 relative" style="background:#e8e4df"></div>
 
   <!-- Floating Radius Control for Mobile -->
   <div class="absolute bottom-6 left-4 z-20 sm:hidden flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl backdrop-blur-md" style="background:rgba(8,8,22,0.85);border:1px solid rgba(0,212,255,0.25);box-shadow:0 8px 32px rgba(0,0,0,0.5)">
@@ -703,13 +717,17 @@ async function initGoogleMap() {
 
   if (loadingEl) loadingEl.style.display = 'none';
 
-  const loc = state.userLoc || BENGALURU_DEFAULT;
-  const isReal = state.userLoc && !(state.userLoc.lat === BENGALURU_DEFAULT.lat && state.userLoc.lng === BENGALURU_DEFAULT.lng);
+  const loc = state.userLoc || MAP_DEFAULT;
+  const isReal = state.userLoc && !(state.userLoc.lat === MAP_DEFAULT.lat && state.userLoc.lng === MAP_DEFAULT.lng);
 
-  state.map = new google.maps.Map(document.getElementById('map-container'), {
+  const mapEl = document.getElementById('map-container');
+  if (mapEl) mapEl.style.background = '#e8e4df';
+
+  const mapOpts = {
     center: loc,
-    zoom: isReal ? 16 : 13,
-    styles: DARK_MAP_STYLE,
+    zoom: isReal ? 16 : 5,
+    mapId: state._gmapsMapId,
+    mapTypeId: google.maps.MapTypeId.HYBRID,
     disableDefaultUI: true,
     zoomControl: true,
     zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_BOTTOM },
@@ -717,8 +735,12 @@ async function initGoogleMap() {
     streetViewControl: false,
     mapTypeControl: false,
     gestureHandling: 'greedy',
-    mapId: 'parkospace_dark',
-  });
+  };
+  if (google.maps.ColorScheme) {
+    mapOpts.colorScheme = google.maps.ColorScheme.LIGHT;
+  }
+  // Cloud style: monochrome + light + hybrid (Google Style Editor) — never use `styles` here
+  state.map = new google.maps.Map(mapEl, mapOpts);
 
   // Custom zoom control position
   state.map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(
@@ -759,7 +781,7 @@ function updateMapMarkers() {
           title: l.title,
           content: pin,
         });
-        marker.addEventListener('click', () => {
+        bindAdvancedMarkerClick(marker, () => {
           iw.setContent(buildInfoWindowHtml(l));
           iw.open({ map: state.map, anchor: marker });
         });
@@ -908,8 +930,8 @@ async function renderDashboard() {
   </h2>
 
   <div class="form-stack">
-  <input id="in-title"    type="text" placeholder="Space Title (e.g. Covered Spot near Koramangala Metro)" class="ps-input">
-  <input id="in-landmark" type="text" placeholder="Area / Landmark (e.g. BTM Layout, near Forum Mall)" class="ps-input">
+  <input id="in-title"    type="text" placeholder="Space Title (e.g. Covered Spot near Central Station)" class="ps-input">
+  <input id="in-landmark" type="text" placeholder="Area / Landmark (e.g. neighbourhood, mall, landmark)" class="ps-input">
   <textarea id="in-desc"  placeholder="Short description of the space…" rows="3" class="ps-input resize-none"></textarea>
 
   <!-- Pricing tip -->

@@ -1,4 +1,4 @@
-const CACHE = 'parkospace-v5';
+const CACHE = 'parkospace-v9';
 const PRECACHE = ['/static/css/styles.css', '/static/js/app.js'];
 
 self.addEventListener('install', (e) => {
