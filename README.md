@@ -18,8 +18,8 @@ Built with Flask, Google Maps, and a dark-themed progressive web app.
 **For space owners**
 
 - Register with phone number and email OTP verification
-- List a space with title, landmark, Google Maps link (or GPS), dimensions, and pricing
-- Paste a Maps link and tap the wand — coordinates are geocoded and the link is rewritten with exact lat/lng
+- List a space with title, landmark, Google Maps Link (for navigation), Confirm Link (for geocoding), dimensions, and pricing
+- Paste a Maps link and tap the wand next to the Confirm Link — coordinates are geocoded/re-phrased while the original link is preserved for end-user navigation
 - Edit or remove listings from the owner dashboard
 - Mark spaces as booked when no longer available
 
@@ -124,10 +124,11 @@ The Maps key is loaded by the browser from `/api/config` and used on the server 
 
 ## Location & Geocoding
 
-- Works for **any location** — no city lock-in; search and geocoding use the place name or Maps link you provide
-- **Map link wand**: resolves coordinates (Google Geocoding / Places when configured, OpenStreetMap Nominatim as fallback), then **rewrites the input** with a full `google.com/maps/place/.../@lat,lng` URL
-- **GPS button** on the owner form sets location when a short link cannot be parsed
-- **Area / Landmark** field can be geocoded if the link alone fails
+- **Double-Opt-In Geolocation Permission**: Requests permission using an upfront confirmation dialog to ensure location queries are executed synchronously in user interaction contexts, complying with iOS and Android browser security policies.
+- **Dual-Link Architecture**: Separate input fields allow storing the original short link (for navigation) while using the confirmed link to geocode and pin the listing on the map.
+- **Client-Side Coordinate Parsing**: Standard Google Maps links containing coordinates are processed instantly on the client using regex, avoiding server delays.
+- **Backend Redirect Resolution & 404 Detection**: Short links are resolved on the backend; if Google returns a `404 Not Found` response (due to a typo), the user is presented with a specific error message.
+- **Area / Landmark** field can be geocoded as a fallback if the link alone does not provide location data.
 
 ---
 

@@ -71,11 +71,15 @@ async function loadGoogleMaps() {
 }
 
 // ── GPS ─────────────────────────────────────────────────────────
-function locateUser(onSuccess) {
+function locateUser(onSuccess, silent = false) {
   const btn = document.getElementById('btn-locate');
   if (btn) { btn.innerHTML = '<i data-lucide="loader" class="animate-spin w-4 h-4"></i>'; lucide.createIcons(); }
 
-  if (!navigator.geolocation) { toast('Geolocation not supported', 'error'); return; }
+  if (!navigator.geolocation) { 
+    if (!silent) toast('Geolocation not supported', 'error'); 
+    if (btn) { btn.innerHTML = '<i data-lucide="crosshair" class="w-4 h-4"></i>'; lucide.createIcons(); }
+    return; 
+  }
 
   navigator.geolocation.getCurrentPosition(
     (pos) => {
@@ -92,10 +96,11 @@ function locateUser(onSuccess) {
     },
     (err) => {
       const msgs = { 1: 'Location permission denied', 2: 'Position unavailable', 3: 'GPS timed out' };
-      toast(msgs[err.code] || 'Could not get location', 'error');
+      if (!silent) toast(msgs[err.code] || 'Could not get location', 'error');
+      else console.warn('GPS location request failed:', msgs[err.code] || err.message);
       if (btn) { btn.innerHTML = '<i data-lucide="crosshair" class="w-4 h-4"></i>'; lucide.createIcons(); }
     },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
   );
 }
 
@@ -326,72 +331,39 @@ function parseCoordsFromUrl(raw) {
 
 function showMapUrlSuccess(statusDiv, data, urlEl) {
   const expanded = data.expanded_url || buildExpandedMapUrl(data.lat, data.lng, data.address);
-  state.parsedLocation = { lat: data.lat, lng: data.lng, address: data.address };
-  if (urlEl) urlEl.value = expanded;
+  state.parsedLocation = { lat: data.lat, lng: data.lng, address: data.address, expanded_url: expanded };
+  // Only set the URL if the field is empty (GPS mode) — preserve the owner's original pasted link
+  if (urlEl && !urlEl.value.trim()) urlEl.value = expanded;
   statusDiv.innerHTML = `
   <div style="margin-top:8px;background:rgba(6,255,165,0.06);border:1px solid rgba(6,255,165,0.2);padding:12px;border-radius:12px;font-size:0.78rem">
   <div style="color:var(--green);font-weight:700;display:flex;align-items:center;gap:4px;margin-bottom:4px"><i data-lucide="check-circle" class="w-3 h-3"></i> Location Verified</div>
   <div style="color:#e2e8f0;font-weight:600">${data.address}</div>
   <div style="font-family:var(--font-mono);color:rgba(255,255,255,0.3);margin-top:4px;font-size:0.65rem">${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</div>
-  <div style="color:rgba(0,212,255,0.55);font-size:0.65rem;margin-top:6px">Link updated with coordinates</div>
+  <div style="color:rgba(0,212,255,0.55);font-size:0.65rem;margin-top:6px">Coordinates extracted · Your link is preserved for navigation</div>
   </div>`;
   lucide.createIcons();
-  toast('Location set — link updated with coordinates', 'success');
+  toast('Location verified — original link is preserved for navigation', 'success');
 }
 
 function mapUrlErrorHtml(message) {
-  return `<span style="color:var(--pink);font-size:0.75rem;font-weight:700;display:block;margin-bottom:8px">✕ ${message}</span>
-  <button type="button" onclick="useGpsForListing()" class="gps-fallback-btn">
-  <i data-lucide="crosshair" class="w-4 h-4"></i> Use GPS instead
-  </button>`;
-}
-
-function useGpsForListing() {
-  const urlEl     = document.getElementById('in-gmap');
-  const statusDiv = document.getElementById('url-status');
-  if (!navigator.geolocation) {
-    statusDiv.innerHTML = mapUrlErrorHtml('GPS not supported on this device');
-    lucide.createIcons();
-    return;
-  }
-  statusDiv.innerHTML = `<span style="color:var(--cyan);font-size:0.75rem;display:flex;align-items:center;gap:4px"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Getting GPS location…</span>`;
-  lucide.createIcons();
-  navigator.geolocation.getCurrentPosition(
-    async (pos) => {
-      const lat = pos.coords.latitude;
-      const lng = pos.coords.longitude;
-      let address = 'Current GPS Location';
-      let expanded_url = buildExpandedMapUrl(lat, lng, address);
-      try {
-        const res  = await fetch('/api/utils/reverse-geocode', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lat, lng }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          if (data.address) address = data.address;
-          if (data.expanded_url) expanded_url = data.expanded_url;
-        }
-      } catch (_) {}
-      showMapUrlSuccess(statusDiv, { lat, lng, address, expanded_url }, urlEl);
-    },
-    () => {
-      statusDiv.innerHTML = mapUrlErrorHtml('Could not get GPS — allow location permission in browser settings');
-      lucide.createIcons();
-      toast('Allow location permission and try GPS again', 'error');
-    },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-  );
+  return `<span style="color:var(--pink);font-size:0.75rem;font-weight:700;display:block;margin-bottom:8px">✕ ${message}</span>`;
 }
 
 async function parseMapUrl() {
-  const urlEl     = document.getElementById('in-gmap');
+  const urlEl     = document.getElementById('in-gmap-confirm');
   const statusDiv = document.getElementById('url-status');
-  const url       = normalizeMapUrl(urlEl.value);
+  const rawVal    = urlEl.value.trim();
+  const url       = normalizeMapUrl(rawVal);
   const landmark  = document.getElementById('in-landmark')?.value?.trim() || '';
-  if (!url && !landmark) { toast('Paste a Maps link or fill Area/Landmark, or use GPS', 'error'); return; }
+  if (!url && !landmark) { toast('Paste a Maps link or fill Area/Landmark', 'error'); return; }
   if (url) urlEl.value = url;
+
+  // Check if we can parse the coordinates locally on the client side first
+  const localParsed = parseCoordsFromUrl(rawVal);
+  if (localParsed) {
+    showMapUrlSuccess(statusDiv, localParsed, urlEl);
+    return;
+  }
 
   statusDiv.innerHTML = `<span style="color:var(--cyan);font-size:0.75rem;display:flex;align-items:center;gap:4px"><i data-lucide="loader" class="animate-spin w-3 h-3"></i> Geocoding & updating link…</span>`;
   lucide.createIcons();
@@ -417,8 +389,8 @@ async function parseMapUrl() {
   } catch (e) {
     statusDiv.innerHTML = mapUrlErrorHtml(e.name === 'AbortError' ? 'Request timed out' : 'Connection error');
     lucide.createIcons();
-    if (e.name === 'AbortError') toast('Request timed out — try GPS', 'error');
-    else toast('Connection error — try GPS', 'error');
+    if (e.name === 'AbortError') toast('Request timed out', 'error');
+    else toast('Connection error', 'error');
   }
 }
 
@@ -566,7 +538,7 @@ function renderLanding() {
 
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px">
   ${[
-    { n:'01', icon:'map-pin',    title:'Find Your Area',    desc:'Search any city or neighbourhood, or tap GPS. Verified parking spots appear on a live Google Map.',          c:'var(--cyan)'   },
+    { n:'01', icon:'map-pin',    title:'Find Your Area',    desc:'Search any city or neighbourhood. Verified parking spots appear on a live Google Map.',          c:'var(--cyan)'   },
     { n:'02', icon:'phone-call', title:'Contact the Owner', desc:'Call the space owner directly — no middleman, no booking fee. Just a direct phone call.',                   c:'var(--purple)' },
     { n:'03', icon:'car',        title:'Park & Go',         desc:'Navigate with Google Maps, reach the spot, and settle with the owner directly. Done.',                        c:'var(--green)'  },
   ].map(({ n, icon, title, desc, c }) => `
@@ -597,18 +569,14 @@ function renderLanding() {
   setTimeout(startChatAnimation, 800);
 }
 
-// ── MAP NAVIGATION ──────────────────────────────────────────────
 function goToMap() {
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => { state.userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude }; buildMapUI(); },
-                                             ()    => { state.userLoc = MAP_DEFAULT; buildMapUI(); toast('Enable GPS or search your area on the map', 'info'); },
-                                             { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-    );
+  if (confirm("Allow ParkoSpace to access your location? This helps us show nearby parking spots.")) {
+    state.userLoc = MAP_DEFAULT;
+    buildMapUI();
+    locateUser(null, false);
   } else {
     state.userLoc = MAP_DEFAULT;
     buildMapUI();
-    toast('Enable GPS or search your area on the map', 'info');
   }
 }
 
@@ -645,9 +613,9 @@ function buildMapUI() {
   class="w-full py-2.5 pl-10 pr-4 rounded-full outline-none transition"
   style="background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.08);color:white;font-family:var(--font-body);font-size:0.9rem">
   </div>
-  <button id="btn-locate" onclick="locateUser()" title="Use GPS"
-  class="p-2.5 rounded-full flex-shrink-0 transition"
-  style="background:rgba(0,212,255,0.1);color:var(--cyan);border:1px solid rgba(0,212,255,0.2)">
+  <button id="btn-locate" onclick="locateUser()" title="Use Current GPS"
+  class="p-2.5 rounded-full flex items-center justify-center transition border flex-shrink-0 cursor-pointer"
+  style="background:rgba(0,0,0,0.5);border-color:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7)">
   <i data-lucide="crosshair" class="w-4 h-4"></i>
   </button>
   </div>
@@ -883,6 +851,7 @@ async function renderDashboard() {
   const user = state.currentUser;
   const res  = await fetch(`/api/listings?owner_phone=${user.phone}`);
   const myListings = await res.json();
+  state.myListings = myListings;
 
   document.getElementById('app').innerHTML = `
   <div class="owner-dashboard min-h-screen pb-24" style="background:var(--bg)">
@@ -963,16 +932,13 @@ async function renderDashboard() {
 
   <!-- Google Maps link -->
   <div class="form-section">
-  <div class="form-label">Location</div>
+  <div class="form-label">Google Maps Link</div>
+  <input id="in-gmap" type="text" inputmode="url" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Paste Google Maps link" class="ps-input gmap-input" style="width:100%;margin-bottom:12px">
+  <div class="form-label" style="margin-top:8px">Confirm Link</div>
   <div class="gmap-row">
-  <input id="in-gmap" type="text" inputmode="url" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Paste Google Maps link for exact location" class="ps-input gmap-input" onpaste="setTimeout(parseMapUrl,200)">
+  <input id="in-gmap-confirm" type="text" inputmode="url" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Paste link again to confirm" class="ps-input gmap-input" onpaste="setTimeout(parseMapUrl,200)" onblur="parseMapUrl()">
   <button onclick="parseMapUrl()" title="Extract coordinates" type="button" class="gmap-btn">
   <i data-lucide="wand-2" class="w-4 h-4"></i>
-  </button>
-  </div>
-  <div class="location-actions">
-  <button type="button" onclick="useGpsForListing()" class="loc-action-btn">
-  <i data-lucide="crosshair" class="w-3.5 h-3.5"></i> Use GPS
   </button>
   </div>
   <div id="url-status"></div>
@@ -1046,7 +1012,7 @@ async function renderDashboard() {
     ${l.address_text ? `<div class="listing-address mt-2">📍 ${l.address_text}</div>` : ''}
     </div>
     <div class="flex flex-col gap-2 flex-shrink-0">
-    <button onclick='loadForEdit(${JSON.stringify(l).replace(/'/g, "&apos;")})' class="p-2.5 rounded-xl transition" style="background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.07)"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+    <button onclick="loadForEditById('${l.id}')" class="p-2.5 rounded-xl transition" style="background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.07)"><i data-lucide="pencil" class="w-4 h-4"></i></button>
     <button onclick='deleteListing("${l.id}")' class="p-2.5 rounded-xl transition" style="background:rgba(247,37,133,0.06);color:var(--pink);border:1px solid rgba(247,37,133,0.14)"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
     </div>
     </div>
@@ -1072,16 +1038,22 @@ function calcPreview() {
   if (monthly && area > 0) monthly.value = (area * 100).toFixed(0);
 }
 
+function loadForEditById(id) {
+  const l = state.myListings?.find(x => x.id === id);
+  if (l) loadForEdit(l);
+}
+
 function loadForEdit(l) {
   state.editMode = true; state.editId = l.id;
-  state.parsedLocation = { lat: l.lat, lng: l.lng, address: l.address_text };
+  state.parsedLocation = { lat: l.lat, lng: l.lng, address: l.address_text, expanded_url: l.gmap_link_regen || '' };
   renderDashboard().then(() => {
     document.getElementById('in-title').value    = l.title;
     document.getElementById('in-desc').value     = l.desc;
     document.getElementById('in-landmark').value = l.area_landmark || '';
     document.getElementById('in-len').value      = l.length;
     document.getElementById('in-bre').value      = l.breadth;
-    document.getElementById('in-gmap').value     = l.gmap_link;
+    document.getElementById('in-gmap').value         = l.gmap_link;
+    document.getElementById('in-gmap-confirm').value = l.gmap_link_regen || l.gmap_link || '';
     document.getElementById('in-hourly').value   = l.price_hourly;
     document.getElementById('in-daily').value    = l.price_daily;
     document.getElementById('in-monthly').value  = l.price_monthly;
@@ -1098,7 +1070,7 @@ function loadForEdit(l) {
 function cancelEdit() { state.editMode = false; state.editId = null; state.parsedLocation = null; renderDashboard(); }
 
 async function handleFormSubmit() {
-  if (!state.currentUser) { toast('Session expired', 'error'); renderOwnerSignup(); return; }
+  if (!state.currentUser) { toast('Session expired', 'error'); renderAuthPage(); return; }
   const title = document.getElementById('in-title').value.trim();
   if (!title) { toast('Title is required', 'error'); return; }
   const data = {
@@ -1111,6 +1083,7 @@ async function handleFormSubmit() {
     price_daily:   parseFloat(document.getElementById('in-daily').value) || 0,
     price_monthly: parseFloat(document.getElementById('in-monthly').value) || 0,
     gmap_link:     document.getElementById('in-gmap').value,
+    gmap_link_regen: state.parsedLocation?.expanded_url || document.getElementById('in-gmap-confirm').value || '#',
     is_sold:       document.getElementById('in-sold').checked,
     owner_phone:   state.currentUser.phone,
   };
@@ -1146,10 +1119,11 @@ function logout() {
 }
 
 // ── AUTH ────────────────────────────────────────────────────────
-function checkOwnerAuth() { state.currentUser ? renderDashboard() : renderOwnerSignup(); }
+function checkOwnerAuth() { state.currentUser ? renderDashboard() : renderAuthPage(); }
 
-function renderOwnerSignup() {
+function renderAuthPage(initialTab = 'login') {
   state.view = 'auth';
+  const isLogin = initialTab === 'login';
   document.getElementById('app').innerHTML = `
   <div class="min-h-screen flex items-center justify-center px-4 py-12 relative" style="background:var(--bg)">
   <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[350px] pointer-events-none" style="background:radial-gradient(ellipse,rgba(0,212,255,0.06),transparent 60%);filter:blur(40px)"></div>
@@ -1166,36 +1140,137 @@ function renderOwnerSignup() {
   </div>
 
   <div class="auth-card p-7 md:p-9">
-  <div id="step-1" class="auth-form-stack">
+
+  <!-- Tab Switcher -->
+  <div class="auth-tabs" style="display:flex;gap:4px;background:rgba(0,0,0,0.3);border-radius:12px;padding:4px;margin-bottom:1.5rem">
+  <button id="tab-login" onclick="switchAuthTab('login')" class="auth-tab ${isLogin ? 'auth-tab-active' : ''}" style="flex:1;padding:10px;border-radius:10px;font-family:var(--font-body);font-weight:700;font-size:0.85rem;border:none;cursor:pointer;transition:all 0.25s">Login</button>
+  <button id="tab-register" onclick="switchAuthTab('register')" class="auth-tab ${!isLogin ? 'auth-tab-active' : ''}" style="flex:1;padding:10px;border-radius:10px;font-family:var(--font-body);font-weight:700;font-size:0.85rem;border:none;cursor:pointer;transition:all 0.25s">Register</button>
+  </div>
+
+  <!-- LOGIN FORM -->
+  <div id="auth-login" class="${isLogin ? '' : 'hidden'}">
+  <div class="auth-form-stack">
   <div class="auth-field">
-  <label class="auth-label" for="signup-name">Your Name</label>
-  <input id="signup-name" type="text" placeholder="e.g. Priya Sharma" class="ps-input auth-input" autocomplete="name">
+  <label class="auth-label" for="login-email">Email Address</label>
+  <input id="login-email" type="email" placeholder="your@email.com" class="ps-input auth-input" autocomplete="email">
   </div>
   <div class="auth-field">
-  <label class="auth-label" for="signup-phone">Phone Number</label>
-  <input id="signup-phone" type="tel" placeholder="10-digit mobile" class="ps-input auth-input" maxlength="10" autocomplete="tel">
+  <label class="auth-label" for="login-password">Password</label>
+  <div style="position:relative">
+  <input id="login-password" type="password" placeholder="Your password" class="ps-input auth-input" style="padding-right:48px" autocomplete="current-password">
+  <button type="button" onclick="togglePasswordVisibility('login-password', this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(255,255,255,0.35);cursor:pointer;padding:4px">
+  <i data-lucide="eye" class="w-4 h-4"></i>
+  </button>
+  </div>
+  </div>
+  <button id="btn-login" onclick="authLogin()" class="btn-glow w-full font-bold py-4 rounded-xl mt-1" style="background:var(--cyan);color:#05050f;font-family:var(--font-body);font-size:0.95rem">
+  LOGIN
+  </button>
+  <button type="button" onclick="showForgotPassword()" style="background:none;border:none;color:rgba(0,212,255,0.6);font-family:var(--font-body);font-size:0.82rem;cursor:pointer;padding:8px;margin-top:4px;text-align:center;width:100%">Forgot Password?</button>
+  </div>
+  </div>
+
+  <!-- REGISTER FORM -->
+  <div id="auth-register" class="${!isLogin ? '' : 'hidden'}">
+
+  <!-- Step 1: fields -->
+  <div id="reg-step-1" class="auth-form-stack">
+  <div class="auth-field">
+  <label class="auth-label" for="reg-name">Your Name</label>
+  <input id="reg-name" type="text" placeholder="e.g. Priya Sharma" class="ps-input auth-input" autocomplete="name">
   </div>
   <div class="auth-field">
-  <label class="auth-label" for="signup-email">Email Address</label>
-  <input id="signup-email" type="email" placeholder="OTP will be sent here" class="ps-input auth-input" autocomplete="email">
+  <label class="auth-label" for="reg-phone">Phone Number</label>
+  <input id="reg-phone" type="tel" placeholder="10-digit mobile" class="ps-input auth-input" maxlength="10" autocomplete="tel">
   </div>
-  <button id="btn-otp" onclick="sendOTP()" class="btn-glow w-full font-bold py-4 rounded-xl mt-1" style="background:var(--cyan);color:#05050f;font-family:var(--font-body);font-size:0.95rem">
-  SEND OTP TO EMAIL
+  <div class="auth-field">
+  <label class="auth-label" for="reg-email">Email Address</label>
+  <input id="reg-email" type="email" placeholder="OTP will be sent here" class="ps-input auth-input" autocomplete="email">
+  </div>
+  <div class="auth-field">
+  <label class="auth-label" for="reg-password">Create Password</label>
+  <div style="position:relative">
+  <input id="reg-password" type="password" placeholder="Minimum 6 characters" class="ps-input auth-input" style="padding-right:48px" autocomplete="new-password">
+  <button type="button" onclick="togglePasswordVisibility('reg-password', this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(255,255,255,0.35);cursor:pointer;padding:4px">
+  <i data-lucide="eye" class="w-4 h-4"></i>
+  </button>
+  </div>
+  </div>
+  <div class="auth-field">
+  <label class="auth-label" for="reg-confirm">Confirm Password</label>
+  <input id="reg-confirm" type="password" placeholder="Re-enter password" class="ps-input auth-input" autocomplete="new-password">
+  </div>
+  <button id="btn-register" onclick="authRegisterSendOTP()" class="btn-glow w-full font-bold py-4 rounded-xl mt-1" style="background:var(--cyan);color:#05050f;font-family:var(--font-body);font-size:0.95rem">
+  SEND OTP & REGISTER
   </button>
   </div>
 
-  <div id="step-2" class="hidden">
+  <!-- Step 2: OTP verification -->
+  <div id="reg-step-2" class="hidden">
   <div class="text-center mb-6 p-4 rounded-xl" style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.15)">
   <p style="font-size:0.85rem;color:rgba(255,255,255,0.45)">OTP sent to</p>
-  <p id="disp-email" style="font-family:var(--font-mono);color:var(--cyan);font-weight:700;font-size:0.95rem;margin-top:3px"></p>
+  <p id="reg-disp-email" style="font-family:var(--font-mono);color:var(--cyan);font-weight:700;font-size:0.95rem;margin-top:3px"></p>
   </div>
   <div class="auth-field">
-  <label class="auth-label" for="signup-otp">Enter OTP</label>
-  <input id="signup-otp" type="text" placeholder="6-digit code" class="ps-input auth-input auth-input-otp text-center font-bold" maxlength="6" inputmode="numeric">
+  <label class="auth-label" for="reg-otp">Enter OTP</label>
+  <input id="reg-otp" type="text" placeholder="6-digit code" class="ps-input auth-input auth-input-otp text-center font-bold" maxlength="6" inputmode="numeric">
   </div>
-  <button id="btn-verify" onclick="verifyOTP()" class="btn-glow w-full font-bold py-4 rounded-xl mt-4" style="background:var(--green);color:#05050f;font-family:var(--font-body);font-size:0.95rem">
-  VERIFY &amp; ENTER
+  <button id="btn-reg-verify" onclick="authRegisterVerify()" class="btn-glow w-full font-bold py-4 rounded-xl mt-4" style="background:var(--green);color:#05050f;font-family:var(--font-body);font-size:0.95rem">
+  VERIFY & CREATE ACCOUNT
   </button>
+  </div>
+
+  </div>
+
+  <!-- FORGOT PASSWORD FORM (hidden by default) -->
+  <div id="auth-forgot" class="hidden">
+
+  <!-- Step 1: email -->
+  <div id="forgot-step-1" class="auth-form-stack">
+  <div style="text-align:center;margin-bottom:12px">
+  <div style="font-family:var(--font-body);font-weight:700;color:white;font-size:1rem;margin-bottom:4px">Reset Password</div>
+  <div style="font-family:var(--font-mono);font-size:0.72rem;color:rgba(255,255,255,0.35)">We'll send an OTP to verify your identity</div>
+  </div>
+  <div class="auth-field">
+  <label class="auth-label" for="forgot-email">Email Address</label>
+  <input id="forgot-email" type="email" placeholder="your@email.com" class="ps-input auth-input" autocomplete="email">
+  </div>
+  <button id="btn-forgot-send" onclick="authForgotSendOTP()" class="btn-glow w-full font-bold py-4 rounded-xl mt-1" style="background:var(--purple);color:white;font-family:var(--font-body);font-size:0.95rem">
+  SEND RESET OTP
+  </button>
+  <button type="button" onclick="switchAuthTab('login')" style="background:none;border:none;color:rgba(255,255,255,0.3);font-family:var(--font-body);font-size:0.82rem;cursor:pointer;padding:8px;margin-top:4px;text-align:center;width:100%">← Back to Login</button>
+  </div>
+
+  <!-- Step 2: OTP + new password -->
+  <div id="forgot-step-2" class="hidden">
+  <div class="text-center mb-6 p-4 rounded-xl" style="background:rgba(155,93,229,0.08);border:1px solid rgba(155,93,229,0.2)">
+  <p style="font-size:0.85rem;color:rgba(255,255,255,0.45)">OTP sent to</p>
+  <p id="forgot-disp-email" style="font-family:var(--font-mono);color:var(--purple);font-weight:700;font-size:0.95rem;margin-top:3px"></p>
+  </div>
+  <div class="auth-form-stack">
+  <div class="auth-field">
+  <label class="auth-label" for="forgot-otp">Enter OTP</label>
+  <input id="forgot-otp" type="text" placeholder="6-digit code" class="ps-input auth-input auth-input-otp text-center font-bold" maxlength="6" inputmode="numeric">
+  </div>
+  <div class="auth-field">
+  <label class="auth-label" for="forgot-newpw">New Password</label>
+  <div style="position:relative">
+  <input id="forgot-newpw" type="password" placeholder="Minimum 6 characters" class="ps-input auth-input" style="padding-right:48px" autocomplete="new-password">
+  <button type="button" onclick="togglePasswordVisibility('forgot-newpw', this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(255,255,255,0.35);cursor:pointer;padding:4px">
+  <i data-lucide="eye" class="w-4 h-4"></i>
+  </button>
+  </div>
+  </div>
+  <div class="auth-field">
+  <label class="auth-label" for="forgot-confirm">Confirm New Password</label>
+  <input id="forgot-confirm" type="password" placeholder="Re-enter new password" class="ps-input auth-input" autocomplete="new-password">
+  </div>
+  <button id="btn-forgot-reset" onclick="authForgotVerify()" class="btn-glow w-full font-bold py-4 rounded-xl mt-1" style="background:var(--green);color:#05050f;font-family:var(--font-body);font-size:0.95rem">
+  RESET PASSWORD & LOGIN
+  </button>
+  </div>
+  </div>
+
   </div>
 
   <button onclick="renderLanding()" class="w-full mt-5 py-2 text-sm transition" style="color:rgba(255,255,255,0.22);font-family:var(--font-body)">← Back to Home</button>
@@ -1205,38 +1280,173 @@ function renderOwnerSignup() {
   lucide.createIcons();
 }
 
-async function sendOTP() {
-  const name  = document.getElementById('signup-name').value.trim();
-  const phone = document.getElementById('signup-phone').value.trim();
-  const email = document.getElementById('signup-email').value.trim();
-  if (!name || phone.length < 10 || !email.includes('@')) { toast('Fill in all fields correctly', 'error'); return; }
-  const btn = document.getElementById('btn-otp'); btn.textContent = 'SENDING…'; btn.disabled = true;
-  try {
-    const res  = await fetch('/api/auth/send-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, phone }) });
-    const data = await res.json();
-    if (data.success) {
-      document.getElementById('step-1').classList.add('hidden');
-      document.getElementById('step-2').classList.remove('hidden');
-      document.getElementById('disp-email').textContent = email;
-      toast('OTP sent!', 'success');
-    } else toast(data.error || 'Failed to send OTP', 'error');
-  } catch (e) { toast('Connection failed', 'error'); }
-  finally { btn.textContent = 'SEND OTP TO EMAIL'; btn.disabled = false; }
+function switchAuthTab(tab) {
+  const loginPane    = document.getElementById('auth-login');
+  const registerPane = document.getElementById('auth-register');
+  const forgotPane   = document.getElementById('auth-forgot');
+  const tabLogin     = document.getElementById('tab-login');
+  const tabRegister  = document.getElementById('tab-register');
+
+  // Hide forgot password pane whenever switching tabs
+  if (forgotPane) forgotPane.classList.add('hidden');
+
+  if (tab === 'login') {
+    loginPane.classList.remove('hidden');
+    registerPane.classList.add('hidden');
+    tabLogin.classList.add('auth-tab-active');
+    tabRegister.classList.remove('auth-tab-active');
+  } else {
+    loginPane.classList.add('hidden');
+    registerPane.classList.remove('hidden');
+    tabLogin.classList.remove('auth-tab-active');
+    tabRegister.classList.add('auth-tab-active');
+  }
 }
 
-async function verifyOTP() {
-  const name  = document.getElementById('signup-name').value.trim();
-  const phone = document.getElementById('signup-phone').value.trim();
-  const email = document.getElementById('signup-email').value.trim();
-  const otp   = document.getElementById('signup-otp').value.trim();
-  const btn   = document.getElementById('btn-verify'); btn.textContent = 'VERIFYING…'; btn.disabled = true;
+function showForgotPassword() {
+  document.getElementById('auth-login').classList.add('hidden');
+  document.getElementById('auth-register').classList.add('hidden');
+  document.getElementById('auth-forgot').classList.remove('hidden');
+  document.getElementById('tab-login').classList.remove('auth-tab-active');
+  document.getElementById('tab-register').classList.remove('auth-tab-active');
+}
+
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const isHidden = input.type === 'password';
+  input.type = isHidden ? 'text' : 'password';
+  btn.innerHTML = isHidden
+    ? '<i data-lucide="eye-off" class="w-4 h-4"></i>'
+    : '<i data-lucide="eye" class="w-4 h-4"></i>';
+  lucide.createIcons();
+}
+
+// ── LOGIN ──
+async function authLogin() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!email || !password) { toast('Enter email and password', 'error'); return; }
+
+  const btn = document.getElementById('btn-login');
+  btn.textContent = 'LOGGING IN…'; btn.disabled = true;
   try {
-    const res  = await fetch('/api/auth/verify-owner', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, email, code: otp, name }) });
+    const res  = await fetch('/api/auth/login', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
     const data = await res.json();
-    if (data.success) { state.currentUser = data.user; toast(`Welcome, ${data.user.name}!`, 'success'); renderDashboard(); }
-    else toast('Invalid OTP', 'error');
-  } catch (e) { toast('Verification failed', 'error'); }
-  finally { btn.textContent = 'VERIFY & ENTER'; btn.disabled = false; }
+    if (data.success) {
+      state.currentUser = data.user;
+      toast(`Welcome back, ${data.user.name}!`, 'success');
+      renderDashboard();
+    } else {
+      toast(data.error || 'Login failed', 'error');
+    }
+  } catch (e) { toast('Connection failed', 'error'); }
+  finally { btn.textContent = 'LOGIN'; btn.disabled = false; }
+}
+
+// ── REGISTER STEP 1: Send OTP ──
+async function authRegisterSendOTP() {
+  const name     = document.getElementById('reg-name').value.trim();
+  const phone    = document.getElementById('reg-phone').value.trim();
+  const email    = document.getElementById('reg-email').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const confirm  = document.getElementById('reg-confirm').value;
+
+  if (!name)                    { toast('Enter your name', 'error'); return; }
+  if (phone.length < 10)       { toast('Enter a valid 10-digit phone', 'error'); return; }
+  if (!email.includes('@'))    { toast('Enter a valid email', 'error'); return; }
+  if (password.length < 6)     { toast('Password must be at least 6 characters', 'error'); return; }
+  if (password !== confirm)    { toast('Passwords do not match', 'error'); return; }
+
+  const btn = document.getElementById('btn-register');
+  btn.textContent = 'CHECKING…'; btn.disabled = true;
+  try {
+    const res  = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, phone, email, password }) });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('reg-step-1').classList.add('hidden');
+      document.getElementById('reg-step-2').classList.remove('hidden');
+      document.getElementById('reg-disp-email').textContent = email;
+      toast('OTP sent to your email!', 'success');
+    } else {
+      toast(data.error || 'Registration failed', 'error');
+    }
+  } catch (e) { toast('Connection failed', 'error'); }
+  finally { btn.textContent = 'SEND OTP & REGISTER'; btn.disabled = false; }
+}
+
+// ── REGISTER STEP 2: Verify OTP & create account ──
+async function authRegisterVerify() {
+  const name     = document.getElementById('reg-name').value.trim();
+  const phone    = document.getElementById('reg-phone').value.trim();
+  const email    = document.getElementById('reg-email').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const code     = document.getElementById('reg-otp').value.trim();
+
+  if (!code) { toast('Enter the OTP', 'error'); return; }
+
+  const btn = document.getElementById('btn-reg-verify');
+  btn.textContent = 'VERIFYING…'; btn.disabled = true;
+  try {
+    const res  = await fetch('/api/auth/register/verify', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, phone, email, password, code }) });
+    const data = await res.json();
+    if (data.success) {
+      state.currentUser = data.user;
+      toast(`Welcome, ${data.user.name}! Account created.`, 'success');
+      renderDashboard();
+    } else {
+      toast(data.error || 'Verification failed', 'error');
+    }
+  } catch (e) { toast('Connection failed', 'error'); }
+  finally { btn.textContent = 'VERIFY & CREATE ACCOUNT'; btn.disabled = false; }
+}
+
+// ── FORGOT PASSWORD STEP 1: Send OTP ──
+async function authForgotSendOTP() {
+  const email = document.getElementById('forgot-email').value.trim();
+  if (!email.includes('@')) { toast('Enter a valid email', 'error'); return; }
+
+  const btn = document.getElementById('btn-forgot-send');
+  btn.textContent = 'SENDING…'; btn.disabled = true;
+  try {
+    const res  = await fetch('/api/auth/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('forgot-step-1').classList.add('hidden');
+      document.getElementById('forgot-step-2').classList.remove('hidden');
+      document.getElementById('forgot-disp-email').textContent = email;
+      toast('Reset OTP sent!', 'success');
+    } else {
+      toast(data.error || 'Failed', 'error');
+    }
+  } catch (e) { toast('Connection failed', 'error'); }
+  finally { btn.textContent = 'SEND RESET OTP'; btn.disabled = false; }
+}
+
+// ── FORGOT PASSWORD STEP 2: Verify OTP & set new password ──
+async function authForgotVerify() {
+  const email       = document.getElementById('forgot-email').value.trim();
+  const code        = document.getElementById('forgot-otp').value.trim();
+  const newPassword = document.getElementById('forgot-newpw').value;
+  const confirm     = document.getElementById('forgot-confirm').value;
+
+  if (!code)                       { toast('Enter the OTP', 'error'); return; }
+  if (newPassword.length < 6)      { toast('Password must be at least 6 characters', 'error'); return; }
+  if (newPassword !== confirm)     { toast('Passwords do not match', 'error'); return; }
+
+  const btn = document.getElementById('btn-forgot-reset');
+  btn.textContent = 'RESETTING…'; btn.disabled = true;
+  try {
+    const res  = await fetch('/api/auth/reset-password', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, code, new_password: newPassword }) });
+    const data = await res.json();
+    if (data.success) {
+      state.currentUser = data.user;
+      toast('Password reset! You are now logged in.', 'success');
+      renderDashboard();
+    } else {
+      toast(data.error || 'Reset failed', 'error');
+    }
+  } catch (e) { toast('Connection failed', 'error'); }
+  finally { btn.textContent = 'RESET PASSWORD & LOGIN'; btn.disabled = false; }
 }
 
 function setView(v) { if (v === 'map') goToMap(); else if (v === 'dashboard') renderDashboard(); else renderLanding(); }

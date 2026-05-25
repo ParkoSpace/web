@@ -1,5 +1,6 @@
 from flask import Flask, render_template, jsonify, request, session, make_response, send_from_directory
 from dotenv import load_dotenv
+from werkzeug.security import generate_password_hash, check_password_hash
 import math
 from datetime import timedelta
 import time
@@ -71,13 +72,25 @@ def init_db():
             CREATE TABLE IF NOT EXISTS owners (
                 phone TEXT PRIMARY KEY,
                 name TEXT,
-                email TEXT,
+                email TEXT UNIQUE,
+                password_hash TEXT,
                 joined_at REAL
             );
         """)
-        # Migration for email
+        # Migrations
         try:
             cur.execute("ALTER TABLE owners ADD COLUMN IF NOT EXISTS email TEXT;")
+            conn.commit()
+        except:
+            conn.rollback()
+        try:
+            cur.execute("ALTER TABLE owners ADD COLUMN IF NOT EXISTS password_hash TEXT;")
+            conn.commit()
+        except:
+            conn.rollback()
+        # Add unique constraint on email (skip if already exists)
+        try:
+            cur.execute("ALTER TABLE owners ADD CONSTRAINT owners_email_unique UNIQUE (email);")
             conn.commit()
         except:
             conn.rollback()
@@ -96,6 +109,7 @@ def init_db():
                 breadth REAL,
                 amenities TEXT,
                 gmap_link TEXT,
+                gmap_link_regen TEXT,
                 image TEXT,
                 owner_phone TEXT REFERENCES owners(phone),
                 is_sold BOOLEAN,
@@ -109,6 +123,20 @@ def init_db():
             conn.commit()
         except:
             conn.rollback()
+        try:
+            cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS gmap_link_regen TEXT;")
+            conn.commit()
+        except:
+            conn.rollback()
+
+        # Enable Row-Level Security (RLS) on tables for public security
+        try:
+            cur.execute("ALTER TABLE owners ENABLE ROW LEVEL SECURITY;")
+            cur.execute("ALTER TABLE listings ENABLE ROW LEVEL SECURITY;")
+            conn.commit()
+        except Exception as rls_err:
+            print(f" [WARNING] Could not enable RLS on startup: {rls_err}")
+            conn.rollback()
 
         conn.commit()
     else:
@@ -117,18 +145,28 @@ def init_db():
             CREATE TABLE IF NOT EXISTS owners (
                 phone TEXT PRIMARY KEY,
                 name TEXT,
-                email TEXT,
+                email TEXT UNIQUE,
+                password_hash TEXT,
                 joined_at REAL
             )
         ''')
         # SQLite Migrations
         try: cur.execute('ALTER TABLE owners ADD COLUMN email TEXT')
         except: pass
+        try: cur.execute('ALTER TABLE owners ADD COLUMN password_hash TEXT')
+        except: pass
 
         try: cur.execute('ALTER TABLE listings ADD COLUMN address_text TEXT')
         except: pass
 
         try: cur.execute('ALTER TABLE listings ADD COLUMN area_landmark TEXT')
+        except: pass
+
+        try: cur.execute('ALTER TABLE listings ADD COLUMN gmap_link_regen TEXT')
+        except: pass
+
+        # SQLite unique index on email (safe to run multiple times)
+        try: cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_owners_email ON owners(email)')
         except: pass
 
         cur.execute('''
@@ -145,6 +183,7 @@ def init_db():
                 breadth REAL,
                 amenities TEXT,
                 gmap_link TEXT,
+                gmap_link_regen TEXT,
                 image TEXT,
                 owner_phone TEXT,
                 is_sold INTEGER,
@@ -321,6 +360,14 @@ def _coords_from_text(text):
     """Extract pin coordinates; prefer !3d/!4d (exact pin) over @ (map center)."""
     if not text:
         return None, None
+    # URL decode to handle URL-encoded redirects (like Google consent walls)
+    text = urllib.parse.unquote(text)
+    
+    # Try raw coordinate match first: "12.9927458, 77.6675577"
+    raw_m = re.search(r'^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$', text)
+    if raw_m:
+        return float(raw_m.group(1)), float(raw_m.group(2))
+        
     lat_m = re.search(r'!3d(-?\d+\.\d+)', text)
     lng_m = re.search(r'!4d(-?\d+\.\d+)', text)
     if lat_m and lng_m:
@@ -349,41 +396,48 @@ def _place_name_from_text(text):
 
 def _fetch_maps_final_url(url):
     session = requests.Session()
-    for ua in (_MAP_UA_DESKTOP, _MAP_UA_MOBILE):
-        headers = {'User-Agent': ua}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    curr_url = url
+    # Follow redirects manually using allow_redirects=False
+    for hop in range(6):
+        lat, lng = _coords_from_text(curr_url)
+        if lat and lng:
+            return curr_url, ''
         try:
-            resp = session.head(url, allow_redirects=True, headers=headers, timeout=8)
-            final_url = resp.url
-            lat, lng = _coords_from_text(final_url)
-            if lat and lng:
-                return final_url, ''
-            if 'google.com/maps' in final_url:
-                return final_url, ''
+            resp = session.head(curr_url, headers=headers, allow_redirects=False, timeout=6)
+            if resp.status_code == 404:
+                return "404_NOT_FOUND", ""
+            loc = resp.headers.get('Location')
+            if not loc:
+                resp = session.get(curr_url, headers=headers, allow_redirects=False, timeout=8)
+                if resp.status_code == 404:
+                    return "404_NOT_FOUND", ""
+                loc = resp.headers.get('Location')
+            if not loc:
+                break
+            if loc.startswith('/'):
+                curr_url = urllib.parse.urljoin(curr_url, loc)
+            else:
+                curr_url = loc
         except Exception:
-            pass
-        try:
-            resp = session.get(url, allow_redirects=True, headers=headers, timeout=12)
-            final_url = resp.url
-            for hop in resp.history:
-                lat, lng = _coords_from_text(hop.url)
-                if lat and lng:
-                    return hop.url, resp.text or ''
-            return final_url, resp.text or ''
-        except Exception:
-            pass
-    return url, ''
+            break
+    return curr_url, ''
 
 def resolve_google_maps_url(url):
     try:
         url = _normalize_map_input(url)
         if not url:
-            return None, None, None
+            return None, None, None, False
 
         lat, lng = _coords_from_text(url)
         address = _place_name_from_text(url)
 
         if not lat:
             final_url, html = _fetch_maps_final_url(url)
+            if final_url == "404_NOT_FOUND":
+                return None, None, None, True
             lat, lng = _coords_from_text(final_url)
             if not lat and html:
                 lat, lng = _coords_from_text(html[:100000])
@@ -400,19 +454,28 @@ def resolve_google_maps_url(url):
                 if g_lat and g_lng:
                     lat, lng, address = g_lat, g_lng, g_addr or address
 
+        # Fallback 1: If coordinates still not found but we have a place name/address, use Google Geocoding API
         if not lat and address:
             g_lat, g_lng, g_addr = _geocode_text(address)
             if g_lat and g_lng:
                 lat, lng, address = g_lat, g_lng, g_addr
 
+        # Fallback 2: If we still don't have coordinates, but have a place ID (fallback), geocode it
+        if not lat:
+            place_id = _extract_place_id(url)
+            if place_id:
+                g_lat, g_lng, g_addr = _google_place_details(place_id)
+                if g_lat and g_lng:
+                    lat, lng, address = g_lat, g_lng, g_addr or address
+
         if lat and lng and not address:
             address = _reverse_geocode_coords(lat, lng) or 'Location Detected'
 
-        return lat, lng, address
+        return lat, lng, address, False
 
     except Exception as e:
         print(f' [ERROR] Map Parsing Error: {e}')
-        return None, None, None
+        return None, None, None, False
 
 # --- DATABASE OPERATIONS ---
 
@@ -434,6 +497,7 @@ def db_get_listings(owner_phone=None):
         d = dict(row)
         d['amenities'] = json.loads(d['amenities']) if d['amenities'] else []
         d['is_sold'] = bool(d['is_sold'])
+        d['gmap_link_regen'] = d.get('gmap_link_regen') or d.get('gmap_link') or '#'
         results.append(d)
     return results
 
@@ -444,28 +508,30 @@ def db_add_listing(data):
     is_sold = data['is_sold']
     if not USE_POSTGRES: is_sold = 1 if is_sold else 0
 
+    gmap_regen = data.get('gmap_link_regen') or data.get('gmap_link') or '#'
+
     if USE_POSTGRES:
         query = """
-            INSERT INTO listings (id, title, "desc", area_landmark, price_hourly, price_daily, price_monthly, lat, lng, length, breadth, amenities, gmap_link, image, owner_phone, is_sold, created_at, address_text)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO listings (id, title, "desc", area_landmark, price_hourly, price_daily, price_monthly, lat, lng, length, breadth, amenities, gmap_link, gmap_link_regen, image, owner_phone, is_sold, created_at, address_text)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         params = (
             data['id'], data['title'], data['desc'], data.get('area_landmark', ''),
             data['price_hourly'], data['price_daily'], data['price_monthly'],
             data['lat'], data['lng'], data['length'], data['breadth'],
-            amenities_json, data['gmap_link'], data['image'], data['owner_phone'],
+            amenities_json, data['gmap_link'], gmap_regen, data['image'], data['owner_phone'],
             is_sold, data['created_at'], data.get('address_text', '')
         )
     else:
         query = """
-            INSERT INTO listings (id, title, desc, area_landmark, price_hourly, price_daily, price_monthly, lat, lng, length, breadth, amenities, gmap_link, image, owner_phone, is_sold, created_at, address_text)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO listings (id, title, desc, area_landmark, price_hourly, price_daily, price_monthly, lat, lng, length, breadth, amenities, gmap_link, gmap_link_regen, image, owner_phone, is_sold, created_at, address_text)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         params = (
             data['id'], data['title'], data['desc'], data.get('area_landmark', ''),
             data['price_hourly'], data['price_daily'], data['price_monthly'],
             data['lat'], data['lng'], data['length'], data['breadth'],
-            amenities_json, data['gmap_link'], data['image'], data['owner_phone'],
+            amenities_json, data['gmap_link'], gmap_regen, data['image'], data['owner_phone'],
             is_sold, data['created_at'], data.get('address_text', '')
         )
 
@@ -479,23 +545,25 @@ def db_update_listing(lid, data, owner_phone):
     is_sold = data['is_sold']
     if not USE_POSTGRES: is_sold = 1 if is_sold else 0
 
+    gmap_regen = data.get('gmap_link_regen') or data.get('gmap_link') or '#'
+
     base_query = """
         UPDATE listings SET
             title=%s, "desc"=%s, area_landmark=%s, length=%s, breadth=%s,
             price_hourly=%s, price_daily=%s, price_monthly=%s,
-            gmap_link=%s, is_sold=%s
+            gmap_link=%s, gmap_link_regen=%s, is_sold=%s
     """ if USE_POSTGRES else """
         UPDATE listings SET
             title=?, desc=?, area_landmark=?, length=?, breadth=?,
             price_hourly=?, price_daily=?, price_monthly=?,
-            gmap_link=?, is_sold=?
+            gmap_link=?, gmap_link_regen=?, is_sold=?
     """
 
     params = [
         data['title'], data['desc'], data.get('area_landmark', ''),
         data['length'], data['breadth'],
         data['price_hourly'], data['price_daily'], data['price_monthly'],
-        data['gmap_link'], is_sold
+        data['gmap_link'], gmap_regen, is_sold
     ]
 
     if 'lat' in data and data['lat']:
@@ -530,22 +598,42 @@ def db_get_owner(phone):
     conn.close()
     return dict(owner) if owner else None
 
+def db_get_owner_by_email(email):
+    """Look up an owner by email address."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    query = "SELECT * FROM owners WHERE email = %s" if USE_POSTGRES else "SELECT * FROM owners WHERE email = ?"
+    cur.execute(query, (email,))
+    owner = cur.fetchone()
+    conn.close()
+    return dict(owner) if owner else None
+
 def db_save_owner(data):
     conn = get_db_connection()
     cur = conn.cursor()
     if USE_POSTGRES:
         query = """
-            INSERT INTO owners (phone, name, email, joined_at)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO owners (phone, name, email, password_hash, joined_at)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (phone) DO UPDATE SET
                 name = EXCLUDED.name,
-                email = EXCLUDED.email
+                email = EXCLUDED.email,
+                password_hash = COALESCE(EXCLUDED.password_hash, owners.password_hash)
         """
-        params = (data['phone'], data['name'], data.get('email', ''), data['joined_at'])
+        params = (data['phone'], data['name'], data.get('email', ''), data.get('password_hash'), data['joined_at'])
     else:
-        query = "INSERT OR REPLACE INTO owners (phone, name, email, joined_at) VALUES (?, ?, ?, ?)"
-        params = (data['phone'], data['name'], data.get('email', ''), data['joined_at'])
+        query = "INSERT OR REPLACE INTO owners (phone, name, email, password_hash, joined_at) VALUES (?, ?, ?, ?, ?)"
+        params = (data['phone'], data['name'], data.get('email', ''), data.get('password_hash'), data['joined_at'])
     cur.execute(query, params)
+    conn.commit()
+    conn.close()
+
+def db_update_password(phone, password_hash):
+    """Update password hash for an owner."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    query = "UPDATE owners SET password_hash = %s WHERE phone = %s" if USE_POSTGRES else "UPDATE owners SET password_hash = ? WHERE phone = ?"
+    cur.execute(query, (password_hash, phone))
     conn.commit()
     conn.close()
 
@@ -626,8 +714,12 @@ def parse_map_url():
         return jsonify({"success": False, "error": "No URL provided"})
 
     lat, lng, address = (None, None, None)
+    is_404 = False
     if url:
-        lat, lng, address = resolve_google_maps_url(url)
+        lat, lng, address, is_404 = resolve_google_maps_url(url)
+
+    if is_404:
+        return jsonify({"success": False, "error": "This Google Maps link is invalid or returned a 404 (Not Found) error from Google. Please verify the URL."})
 
     if not lat and landmark:
         lat, lng, address = _geocode_text(landmark)
@@ -676,6 +768,7 @@ def create_listing():
         "breadth": float(data.get('breadth', 0)),
         "amenities": data.get('amenities', []),
         "gmap_link": data.get('gmap_link', '#'),
+        "gmap_link_regen": data.get('gmap_link_regen', '#'),
         "image": "https://source.unsplash.com/random/400x300?parking,city,car",
         "owner_phone": data.get('owner_phone'),
         "is_sold": data.get('is_sold', False),
@@ -700,6 +793,7 @@ def update_listing():
         'price_daily': float(data['price_daily']),
         'price_monthly': float(data['price_monthly']),
         'gmap_link': data['gmap_link'],
+        'gmap_link_regen': data.get('gmap_link_regen'),
         'is_sold': data.get('is_sold', False),
         'lat': data.get('lat'),
         'lng': data.get('lng'),
@@ -717,72 +811,199 @@ def delete_listing():
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "Delete failed"}), 403
 
-# --- EMAIL OTP INTEGRATION ---
-@app.route('/api/auth/send-otp', methods=['POST'])
-def send_otp():
-    email = request.json.get('email')
-    if not email: return jsonify({"error": "Email is required for OTP"}), 400
+# ── INTERNAL OTP HELPERS ────────────────────────────────────────
 
-    # Using public free-otp-service (sauravhathi)
+def _send_otp_email(email, subject='ParkoSpace Verification'):
+    """Send OTP to email via external service. Returns (success, error_msg)."""
     try:
         response = requests.post("https://otp-service-beta.vercel.app/api/otp/generate", json={
             "email": email,
             "type": "numeric",
             "organization": "ParkoSpace",
-            "subject": "ParkoSpace Login Verification"
+            "subject": subject
         }, timeout=10)
-
         if response.status_code in [200, 201]:
             print(f"\n[EMAIL GATEWAY] OTP Sent to {email}\n")
-            return jsonify({"success": True, "message": "OTP sent to email"})
+            return True, None
         else:
-            print(f"[ERROR] Service Response: {response.text}")
-            return jsonify({"success": False, "error": "Failed to send OTP. Check email."}), 500
-
+            print(f"[ERROR] OTP Service Response: {response.text}")
+            return False, "Failed to send OTP. Check email."
     except Exception as e:
         print(f"[ERROR] OTP Service Error: {e}")
-        return jsonify({"success": False, "error": "OTP Service Unreachable"}), 500
+        return False, "OTP Service Unreachable"
 
-@app.route('/api/auth/verify-owner', methods=['POST'])
-def verify_owner():
-    data = request.json
-    phone = data.get('phone')
-    email = data.get('email')
-    code = data.get('code')
-    name = data.get('name')
-
-    if not email or not code:
-        return jsonify({"success": False, "error": "Missing Email or OTP"}), 400
-
-    # Verify with external service
+def _verify_otp_code(email, code):
+    """Verify OTP code with external service. Returns True if valid."""
     try:
         response = requests.post("https://otp-service-beta.vercel.app/api/otp/verify", json={
             "email": email,
             "otp": code
         }, timeout=10)
-
-        # Check if the service says it's valid
-        if response.status_code == 200:
-            # Login Success - Create/Update User
-            existing = db_get_owner(phone)
-            if not existing:
-                existing = {"name": name, "phone": phone, "email": email, "joined_at": time.time()}
-                db_save_owner(existing)
-            else:
-                # Update email if changed
-                existing['email'] = email
-                db_save_owner(existing)
-
-            session.permanent = True
-            session['user'] = existing
-            return jsonify({"success": True, "user": existing})
-        else:
-            return jsonify({"success": False, "error": "Invalid OTP Code"}), 401
-
+        return response.status_code == 200
     except Exception as e:
-        print(f"[ERROR] Verify Error: {e}")
-        return jsonify({"success": False, "error": "Verification Failed"}), 500
+        print(f"[ERROR] OTP Verify Error: {e}")
+        return False
 
+def _safe_user_dict(owner):
+    """Return a session-safe dict (no password_hash)."""
+    return {k: v for k, v in owner.items() if k != 'password_hash'}
+
+# ── AUTH ROUTES ─────────────────────────────────────────────────
+
+@app.route('/api/auth/check-duplicate', methods=['POST'])
+def check_duplicate():
+    """Check if email or phone is already registered."""
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+    phone = (data.get('phone') or '').strip()
+    if email:
+        existing = db_get_owner_by_email(email)
+        if existing:
+            return jsonify({"duplicate": True, "field": "email", "message": "This email is already registered. Please login instead."})
+    if phone:
+        existing = db_get_owner(phone)
+        if existing:
+            return jsonify({"duplicate": True, "field": "phone", "message": "This phone number is already registered. Please login instead."})
+    return jsonify({"duplicate": False})
+
+@app.route('/api/auth/register', methods=['POST'])
+def auth_register():
+    """Step 1 of registration: validate fields, check duplicates, send OTP."""
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    phone = (data.get('phone') or '').strip()
+    email = (data.get('email') or '').strip().lower()
+    password = (data.get('password') or '')
+
+    if not name or not phone or not email or not password:
+        return jsonify({"success": False, "error": "All fields are required"}), 400
+    if len(phone) < 10:
+        return jsonify({"success": False, "error": "Phone must be at least 10 digits"}), 400
+    if len(password) < 6:
+        return jsonify({"success": False, "error": "Password must be at least 6 characters"}), 400
+
+    # Check duplicates
+    if db_get_owner_by_email(email):
+        return jsonify({"success": False, "error": "This email is already registered. Please login instead."}), 409
+    if db_get_owner(phone):
+        return jsonify({"success": False, "error": "This phone number is already registered. Please login instead."}), 409
+
+    # Send OTP
+    ok, err = _send_otp_email(email, 'ParkoSpace Registration Verification')
+    if ok:
+        return jsonify({"success": True, "message": "OTP sent to your email"})
+    return jsonify({"success": False, "error": err}), 500
+
+@app.route('/api/auth/register/verify', methods=['POST'])
+def auth_register_verify():
+    """Step 2 of registration: verify OTP, create account."""
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    phone = (data.get('phone') or '').strip()
+    email = (data.get('email') or '').strip().lower()
+    password = (data.get('password') or '')
+    code = (data.get('code') or '').strip()
+
+    if not email or not code or not password or not phone or not name:
+        return jsonify({"success": False, "error": "Missing fields"}), 400
+
+    # Re-check duplicates (race condition guard)
+    if db_get_owner_by_email(email):
+        return jsonify({"success": False, "error": "This email was just registered. Please login."}), 409
+    if db_get_owner(phone):
+        return jsonify({"success": False, "error": "This phone number was just registered. Please login."}), 409
+
+    # Verify OTP
+    if not _verify_otp_code(email, code):
+        return jsonify({"success": False, "error": "Invalid or expired OTP"}), 401
+
+    # Create account
+    pw_hash = generate_password_hash(password)
+    owner_data = {
+        "name": name,
+        "phone": phone,
+        "email": email,
+        "password_hash": pw_hash,
+        "joined_at": time.time(),
+    }
+    db_save_owner(owner_data)
+
+    safe = _safe_user_dict(owner_data)
+    session.permanent = True
+    session['user'] = safe
+    return jsonify({"success": True, "user": safe})
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    """Login with email + password."""
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+    password = (data.get('password') or '')
+
+    if not email or not password:
+        return jsonify({"success": False, "error": "Email and password are required"}), 400
+
+    owner = db_get_owner_by_email(email)
+    if not owner:
+        return jsonify({"success": False, "error": "No account found with this email"}), 404
+
+    pw_hash = owner.get('password_hash') or ''
+    if not pw_hash:
+        return jsonify({"success": False, "error": "This account has no password set. Use Forgot Password to set one."}), 403
+
+    if not check_password_hash(pw_hash, password):
+        return jsonify({"success": False, "error": "Incorrect password"}), 401
+
+    safe = _safe_user_dict(owner)
+    session.permanent = True
+    session['user'] = safe
+    return jsonify({"success": True, "user": safe})
+
+@app.route('/api/auth/forgot-password', methods=['POST'])
+def auth_forgot_password():
+    """Send OTP for password reset."""
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+
+    if not email:
+        return jsonify({"success": False, "error": "Email is required"}), 400
+
+    owner = db_get_owner_by_email(email)
+    if not owner:
+        return jsonify({"success": False, "error": "No account found with this email"}), 404
+
+    ok, err = _send_otp_email(email, 'ParkoSpace Password Reset')
+    if ok:
+        return jsonify({"success": True, "message": "OTP sent to your email"})
+    return jsonify({"success": False, "error": err}), 500
+
+@app.route('/api/auth/reset-password', methods=['POST'])
+def auth_reset_password():
+    """Verify OTP and set a new password."""
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+    code = (data.get('code') or '').strip()
+    new_password = (data.get('new_password') or '')
+
+    if not email or not code or not new_password:
+        return jsonify({"success": False, "error": "All fields are required"}), 400
+    if len(new_password) < 6:
+        return jsonify({"success": False, "error": "Password must be at least 6 characters"}), 400
+
+    owner = db_get_owner_by_email(email)
+    if not owner:
+        return jsonify({"success": False, "error": "No account found"}), 404
+
+    if not _verify_otp_code(email, code):
+        return jsonify({"success": False, "error": "Invalid or expired OTP"}), 401
+
+    pw_hash = generate_password_hash(new_password)
+    db_update_password(owner['phone'], pw_hash)
+
+    safe = _safe_user_dict(owner)
+    session.permanent = True
+    session['user'] = safe
+    return jsonify({"success": True, "user": safe, "message": "Password updated successfully"})
 
 # ── SESSION AUTH ROUTES ────────────────────────────────────────
 
