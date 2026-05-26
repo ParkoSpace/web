@@ -5,7 +5,7 @@ import { Search, Crosshair, MapPin, Sliders, Menu, X, Navigation, Phone, Chevron
 export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
   const [listings, setListings] = useState([]);
   const [radius, setRadius] = useState(5);
-  const [userLoc, setUserLoc] = useState({ lat: 20.5937, lng: 78.9629 }); // default India center
+  const [userLoc, setUserLoc] = useState({ lat: 12.9927, lng: 77.6676 }); // default Bangalore center
   const [loading, setLoading] = useState(true);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapConfig, setMapConfig] = useState(null);

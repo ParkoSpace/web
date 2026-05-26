@@ -142,9 +142,54 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    let lat = verifyStatus?.lat;
+    let lng = verifyStatus?.lng;
+    let addressText = verifyStatus?.address || landmark || 'Custom Location';
+
     if (!verifyStatus || !verifyStatus.success) {
-      alert('Please verify the location using Google Maps URL first.');
-      return;
+      // Try geocoding landmark before giving up
+      if (landmark) {
+        try {
+          const geoResp = await fetch('/api/utils/search-location', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: landmark })
+          });
+          const geoData = await geoResp.json();
+          if (geoData.success && geoData.lat && geoData.lng) {
+            lat = geoData.lat;
+            lng = geoData.lng;
+            addressText = geoData.address || landmark;
+            // Auto-update the verify status so the user sees confirmation
+            setVerifyStatus({ success: true, lat, lng, address: addressText });
+          }
+        } catch (e) {
+          console.warn('Landmark geocoding failed:', e);
+        }
+      }
+
+      // If landmark geocoding also failed, ask for manual coords
+      if (!lat || !lng) {
+        const coordInput = prompt(
+          "We couldn't verify the Maps link or landmark location.\n\n" +
+          "Please paste your exact coordinates (lat, lng) from Google Maps.\n" +
+          "Example: 12.9716, 77.5946\n\n" +
+          "To get coordinates: Open Google Maps → Right-click your spot → Click the coordinates to copy them."
+        );
+        if (!coordInput) return;
+
+        const parts = coordInput.split(',').map(s => parseFloat(s.trim()));
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]) && 
+            Math.abs(parts[0]) <= 90 && Math.abs(parts[1]) <= 180) {
+          lat = parts[0];
+          lng = parts[1];
+          addressText = landmark || 'Manual Coordinates';
+        } else {
+          alert('Invalid coordinates format. Please enter as: latitude, longitude\nExample: 12.9716, 77.5946');
+          return;
+        }
+      }
     }
 
     const payload = {
@@ -160,9 +205,9 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
       gmap_link_regen: gmapLinkRegen || '#',
       is_sold: isSold,
       amenities,
-      lat: verifyStatus.lat,
-      lng: verifyStatus.lng,
-      address_text: verifyStatus.address,
+      lat,
+      lng,
+      address_text: addressText,
       owner_phone: currentUser.phone
     };
 

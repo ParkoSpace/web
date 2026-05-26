@@ -45,8 +45,8 @@ db.initDb().then(() => {
 });
 
 // Default map center when GPS unavailable
-const DEFAULT_LAT = 20.5937;
-const DEFAULT_LNG = 78.9629;
+const DEFAULT_LAT = 12.9927;
+const DEFAULT_LNG = 77.6676;
 
 // --- GEOLOCATION & GEOCODING HELPERS ---
 
@@ -221,7 +221,13 @@ function normalizeMapInput(url) {
 
 function coordsFromText(text) {
   if (!text) return { lat: null, lng: null };
-  const decoded = decodeURIComponent(text);
+  let decoded;
+  try {
+    decoded = decodeURIComponent(text);
+  } catch (e) {
+    // HTML or other text with invalid % sequences — just use raw text
+    decoded = text;
+  }
 
   // Raw coordinate match: "12.9927458, 77.6675577"
   const rawM = decoded.match(/^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/);
@@ -239,15 +245,43 @@ function coordsFromText(text) {
     /@(-?\d+\.\d+),(-?\d+\.\d+)/,
     /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/,
     /center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i,
-    /ll=(-?\d+\.\d+),(-?\d+\.\d+)/
+    /center=(-?\d+\.\d+),(-?\d+\.\d+)/i,
+    /ll=(-?\d+\.\d+),(-?\d+\.\d+)/,
+    /latlng=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i,
+    /latlng=(-?\d+\.\d+),(-?\d+\.\d+)/i,
+    // Google's pb= param with lat/lng: !2d<lng>!3d<lat>
+    /!2d(-?\d+\.\d+)!3d(-?\d+\.\d+)/,
+    // data= param coords
+    /data=.*!8m2!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/
   ];
 
   for (const pat of patterns) {
     const m = decoded.match(pat);
     if (m) {
+      // The !2d!3d pattern is lng,lat (reversed)
+      if (pat.source.startsWith('!2d')) {
+        return { lat: parseFloat(m[2]), lng: parseFloat(m[1]) };
+      }
       return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
     }
   }
+
+  // APP_INITIALIZATION_STATE: Google embeds coords as [[[value, lng, lat], ...]]
+  // Format: APP_INITIALIZATION_STATE=[[[someNumber, longitude, latitude], ...]
+  const appInitMatch = decoded.match(/APP_INITIALIZATION_STATE\s*=\s*\[\[\[([^\]]+)\]/);
+  if (appInitMatch) {
+    const parts = appInitMatch[1].split(',').map(s => parseFloat(s.trim()));
+    if (parts.length >= 3) {
+      const possibleLng = parts[1];
+      const possibleLat = parts[2];
+      if (possibleLat && possibleLng && 
+          Math.abs(possibleLat) <= 90 && Math.abs(possibleLng) <= 180 &&
+          !isNaN(possibleLat) && !isNaN(possibleLng)) {
+        return { lat: possibleLat, lng: possibleLng };
+      }
+    }
+  }
+
   return { lat: null, lng: null };
 }
 
@@ -272,22 +306,60 @@ function placeNameFromText(text) {
 }
 
 async function fetchMapsFinalUrl(url) {
-  let currUrl = url;
   const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9'
   };
-  
-  // Manual redirect tracer (up to 6 hops)
-  for (let hop = 0; hop < 6; hop++) {
+
+  // Strategy 1: Full GET with automatic redirect following (most reliable for short links)
+  try {
+    const resp = await axios.get(url, {
+      headers,
+      maxRedirects: 10,
+      timeout: 12000,
+      validateStatus: (status) => status >= 200 && status < 500
+    });
+
+    if (resp.status === 404) {
+      return { finalUrl: "404_NOT_FOUND", html: '' };
+    }
+
+    // Check the final URL after all redirects
+    const finalUrl = resp.request?.res?.responseUrl || resp.config?.url || url;
+    const html = typeof resp.data === 'string' ? resp.data : '';
+    
+    // Check for coords in final URL
+    const coords1 = coordsFromText(finalUrl);
+    if (coords1.lat && coords1.lng) {
+      return { finalUrl, html };
+    }
+
+    // Check for coords in the HTML body (Google embeds them in page source)
+    if (html) {
+      const coords2 = coordsFromText(html.substring(0, 200000));
+      if (coords2.lat && coords2.lng) {
+        return { finalUrl, html };
+      }
+    }
+
+    return { finalUrl, html };
+  } catch (e1) {
+    console.warn(' [WARN] fetchMapsFinalUrl strategy-1 (full GET) failed:', e1.message);
+  }
+
+  // Strategy 2: Manual redirect tracer with HEAD then GET (fallback)
+  let currUrl = url;
+  for (let hop = 0; hop < 8; hop++) {
     const { lat, lng } = coordsFromText(currUrl);
     if (lat && lng) {
       return { finalUrl: currUrl, html: '' };
     }
     try {
-      // Use head request first without redirects
       const resp = await axios.head(currUrl, {
         headers,
         maxRedirects: 0,
+        timeout: 8000,
         validateStatus: (status) => status >= 200 && status < 400
       });
       
@@ -297,10 +369,10 @@ async function fetchMapsFinalUrl(url) {
       
       const loc = resp.headers.location;
       if (!loc) {
-        // Try GET if HEAD doesn't give location
         const getResp = await axios.get(currUrl, {
           headers,
           maxRedirects: 0,
+          timeout: 8000,
           validateStatus: (status) => status >= 200 && status < 400
         });
         if (getResp.status === 404) {
