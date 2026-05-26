@@ -86,6 +86,24 @@ npm run build
 
 ---
 
+## Deploying to Render
+
+This project is configured as a Node.js monorepo and can be deployed to **Render** as a single Web Service:
+
+### 1. Web Service Configuration
+* **Environment**: `Node`
+* **Build Command**: `npm run build` (runs the root-level script to install and compile both frontend & backend)
+* **Start Command**: `npm start` (starts the Express server)
+
+### 2. Environment Variables
+Add these environment variables in your Render Web Service dashboard:
+* `GOOGLE_MAPS_API_KEY`: Your Google Maps API Key
+* `GOOGLE_MAPS_MAP_ID`: `6062647ef5491f7110b5de54` (or your custom Map ID)
+* `SECRET_KEY`: A secure random secret string for session cookies
+* `DATABASE_URL`: Your Supabase or other PostgreSQL connection string (the service will automatically enable SSL Mode)
+
+---
+
 ## License
 
 MIT License. Free to use, modify, and distribute.
