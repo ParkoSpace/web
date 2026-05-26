@@ -1,0 +1,194 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Bebas+Neue&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Space Grotesk', sans-serif;
+  --font-display: 'Bebas Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --color-teal-50: #e0faff;
+  --color-teal-100: #b3f3ff;
+  --color-teal-200: #80ecff;
+  --color-teal-300: #4de4ff;
+  --color-teal-400: #00d4ff;
+  --color-teal-500: #00bce6;
+  --color-teal-600: #0099bd;
+  --color-teal-700: #007694;
+  --color-teal-800: #00546c;
+  --color-teal-900: #003647;
+  --color-teal-950: #001a24;
+
+  --color-purple-400: #9b5de5;
+  --color-purple-500: #8b4dd5;
+  --color-purple-600: #7b3dc5;
+
+  --color-pink-400: #f72585;
+  --color-pink-500: #e71575;
+
+  --color-slate-950: #06060f;
+  --color-slate-900: #0b0b18;
+  --color-slate-800: #13131f;
+  --color-slate-700: #181828;
+}
+
+/* ═══════════════════════════════════════════
+ *  BASE RESETS & PREMIUM VISUAL STYLES
+ ═══════════════════════════════════════════ */
+body {
+  background-color: #06060f;
+  color: #c8d0e0;
+  overflow-x: hidden;
+  position: relative;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Grain overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  opacity: 0.028;
+  pointer-events: none;
+  z-index: 1;
+  mix-blend-mode: overlay;
+}
+
+/* Ambient mesh gradient */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 10% 0%,   rgba(0, 212, 255, 0.055) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 20%,  rgba(155, 93, 229, 0.05) 0%, transparent 55%),
+    radial-gradient(ellipse 70% 40% at 50% 100%, rgba(247, 37, 133, 0.04) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* ═══════════════════════════════════════════
+ *  SCROLLBAR
+ ═══════════════════════════════════════════ */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #00d4ff, #9b5de5);
+  border-radius: 99px;
+}
+
+/* ═══════════════════════════════════════════
+ *  SELECTION
+ ═══════════════════════════════════════════ */
+::selection {
+  background: rgba(0,212,255,0.25);
+  color: white;
+}
+
+/* ═══════════════════════════════════════════
+ *  FOCUS VISIBLE
+ ═══════════════════════════════════════════ */
+:focus-visible {
+  outline: 2px solid #00d4ff;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ═══════════════════════════════════════════
+ *  GRADIENT HEADLINE ANIMATION
+ ═══════════════════════════════════════════ */
+@keyframes gradient-shift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ═══════════════════════════════════════════
+ *  FLOATING ANIMATION (scroll hint)
+ ═══════════════════════════════════════════ */
+@keyframes float {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%      { transform: translateX(-50%) translateY(-10px); }
+}
+
+/* ═══════════════════════════════════════════
+ *  TYPING CURSOR BLINK
+ ═══════════════════════════════════════════ */
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* ═══════════════════════════════════════════
+ *  GOOGLE MAPS INFOWINDOW STYLING
+ ═══════════════════════════════════════════ */
+.gm-style .gm-style-iw-c {
+  background: rgba(8,8,22,0.97) !important;
+  border: 1px solid rgba(0,212,255,0.35) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 0 40px rgba(0,212,255,0.15), 0 8px 40px rgba(0,0,0,0.7) !important;
+  padding: 0 !important;
+}
+.gm-style .gm-style-iw-d {
+  overflow: hidden !important;
+  padding: 14px 18px !important;
+}
+.gm-style .gm-style-iw-t::after {
+  background: rgba(0,212,255,0.6) !important;
+}
+.gm-style .gm-style-iw-chr {
+  display: none !important;
+}
+
+/* Google Places Autocomplete dropdown */
+.pac-container {
+  background: rgba(9,9,22,0.98);
+  border: 1px solid rgba(0,212,255,0.25);
+  border-radius: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  font-family: 'Space Grotesk', sans-serif;
+  margin-top: 6px;
+}
+.pac-item {
+  background: transparent;
+  border-top: 1px solid rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.7);
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.pac-item:hover, .pac-item-selected {
+  background: rgba(0,212,255,0.07);
+}
+.pac-item-query {
+  color: white;
+  font-weight: 600;
+}
+.pac-icon, .pac-logo { display: none; }
+
+/* ═══════════════════════════════════════════
+ *  BUTTON GLOW HOVER EFFECT
+ ═══════════════════════════════════════════ */
+button:hover {
+  filter: brightness(1.05);
+}
+
+/* ═══════════════════════════════════════════
+ *  PULSING USER LOCATOR KEYFRAMES
+ *  ═══════════════════════════════════════════ */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}

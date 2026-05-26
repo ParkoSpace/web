@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#06060f" />
+    <meta name="description" content="Find and list parking spaces anywhere" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ParkoSpace" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Bebas+Neue&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <title>ParkoSpace - Smart Parking Reimagined</title>
+    <style>
+      /* Prevent elastic bounce scrolling on body for fit-to-screen feel */
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+        font-family: 'Space Grotesk', sans-serif;
+      }
+      #root {
+        height: 100%;
+        width: 100%;
+      }
+      /* Custom map autocomplete container override */
+      .pac-container {
+        background-color: #1f2937 !important; /* slate-800 */
+        border: 1px solid #374151 !important; /* slate-700 */
+        border-radius: 0.75rem !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+        margin-top: 6px !important;
+        font-family: 'Inter', sans-serif !important;
+      }
+      .pac-item {
+        background: transparent !important;
+        border-top: 1px solid #374151 !important;
+        color: #9ca3af !important;
+        padding: 10px 16px !important;
+        cursor: pointer;
+        font-size: 0.875rem !important;
+      }
+      .pac-item:hover, .pac-item-selected {
+        background-color: #374151 !important;
+      }
+      .pac-item-query {
+        color: #f3f4f6 !important;
+        font-weight: 600 !important;
+      }
+      .pac-icon, .pac-logo {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-900 text-slate-100">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch((e) => console.log('SW registration failed:', e));
+        });
+      }
+    </script>
+  </body>
+</html>

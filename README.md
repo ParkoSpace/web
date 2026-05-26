@@ -1,169 +1,88 @@
 # ParkoSpace
 
-A peer-to-peer parking marketplace for any city. Space owners list driveways and private parking spots. People looking for parking find them on a live map and contact owners directly. No middlemen, no booking fees.
+A peer-to-peer premium parking marketplace. Space owners list driveways and private parking spots. Drivers looking for parking find them on a live map and contact owners directly. No middlemen, no booking fees.
 
-Built with Flask, Google Maps, and a dark-themed progressive web app.
-
----
-
-## What It Does
-
-**For people looking for parking**
-
-- Open the map, allow location access, or search any city or neighbourhood worldwide
-- Browse nearby parking spots as price pins on Google Maps
-- Call the owner from the listing card
-- Open directions via the listing’s Google Maps link
-
-**For space owners**
-
-- Register with phone number and email OTP verification
-- List a space with title, landmark, Google Maps link (or GPS), dimensions, and pricing
-- Paste a Maps link and tap the wand — coordinates are geocoded and the link is rewritten with exact lat/lng
-- Edit or remove listings from the owner dashboard
-- Mark spaces as booked when no longer available
+This repository is built with **Vite + React (Tailwind CSS)** for the frontend and **Node.js (Express)** for the backend.
 
 ---
 
 ## Tech Stack
 
-| Layer       | Technology                                      |
-|-------------|-------------------------------------------------|
-| Backend     | Python, Flask                                   |
-| Database    | SQLite (local) or PostgreSQL via Supabase        |
-| Maps        | Google Maps JavaScript API, Places API, Geocoding API |
-| Auth        | Email OTP, Flask sessions (30-day cookies)      |
-| Frontend    | Vanilla JS, Tailwind CSS (CDN), Lucide Icons    |
-| Hosting     | Gunicorn — Render, Railway, VPS, or local       |
+| Layer       | Technology                                            |
+|-------------|-------------------------------------------------------|
+| **Frontend** | React (Vite), Tailwind CSS, Lucide Icons              |
+| **Backend**  | Node.js, Express, Express-Session                     |
+| **Database** | SQLite (local fallback) or PostgreSQL (e.g. Supabase)  |
+| **Maps API** | Google Maps JavaScript API, Places Autocomplete, Geocoding |
+| **Auth**     | Email OTP + Session-based cookies                     |
 
 ---
 
-## Project Structure
+## Directory Structure
 
 ```
-main.py                 Flask app and API routes
-requirements.txt        Python dependencies
-.env                    Environment variables (not committed)
-static/
-  css/styles.css        Styles and design tokens
-  js/app.js             Frontend (views, map, auth, listings)
-  manifest.json         PWA manifest
-  sw.js                 Service worker
-  logo.png              Brand logo
-templates/
-  index.html            App shell
+├── /backend
+│   ├── db.js          Database initialization (SQLite & PostgreSQL migrations)
+│   ├── server.js      Express API routes, auth sessions, and geocoding services
+│   └── package.json   Node backend configurations & scripts
+│
+├── /frontend
+│   ├── src/           React components, maps, dashboard, and style tokens
+│   ├── index.html     Apple PWA configuration and styling declarations
+│   ├── vite.config.js Integrates Tailwind CSS and dev API proxy redirection
+│   └── package.json   React application scripts & dependencies
+│
+└── .env               Global environment variables (Google Maps & session secrets)
 ```
 
 ---
 
-## Setup
+## Setup & Running Locally
 
-**1. Clone and enter the project**
-
-```bash
-git clone https://github.com/ParkoSpace/in.git
-cd in
-```
-
-**2. Install dependencies**
-
-```bash
-pip install -r requirements.txt
-```
-
-**3. Create `.env` next to `main.py`**
+### 1. Clone & Setup Configuration
+Clone the repository and create a `.env` file in the root directory:
 
 ```env
 GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
 GOOGLE_MAPS_MAP_ID=6062647ef5491f7110b5de54
 SECRET_KEY=change_this_to_a_long_random_string
-```
 
-`GOOGLE_MAPS_MAP_ID` is the Map ID from Google Cloud → **Map Management** (linked to your custom map style). Optional if you keep the default above.
-
-**Custom map style (hybrid + monochrome light):** In [Map styles](https://console.cloud.google.com/google/maps-apis/studio/styles), associate the style with this Map ID, enable **Hybrid** under map types, click **Publish**, and use the same API key project.
-
-Optional — PostgreSQL (otherwise SQLite is used automatically):
-
-```env
+# Optional: PostgreSQL (falls back to local SQLite 'parkospace.db' if omitted)
 DATABASE_URL=postgresql://user:pass@host:5432/dbname
 ```
 
-**4. Enable Google APIs**
+Make sure to enable **Maps JavaScript API**, **Places API**, and **Geocoding API** in your Google Cloud Developer Console.
 
-In [Google Cloud Console](https://console.cloud.google.com/), enable:
-
-- Maps JavaScript API
-- Places API
-- Geocoding API
-
-Restrict the key to your domains (and server IP if you use server-side geocoding). See [API key best practices](https://developers.google.com/maps/api-security-best-practices).
-
-**5. Run**
-
+### 2. Start the Backend Server
 ```bash
-python main.py
+cd backend
+npm install
+npm run dev
+```
+*Starts Express API server on port `8080`.*
+
+### 3. Start the Frontend Application
+```bash
+cd ../frontend
+npm install
+npm run dev
+```
+*Starts Vite development server on port `5173`. Any API queries will be automatically proxied to port `8080`.*
+
+To compile an optimized production bundle, run:
+```bash
+npm run build
 ```
 
-Open `http://localhost:5000`.
-
 ---
 
-## Environment Variables
+## Key Features & UI Integrations
 
-| Variable              | Required | Description |
-|-----------------------|----------|-------------|
-| `GOOGLE_MAPS_API_KEY` | Yes      | Maps JS, Places, and Geocoding |
-| `GOOGLE_MAPS_MAP_ID`  | No       | Cloud map style Map ID (default: your ParkoSpace style) |
-| `SECRET_KEY`          | Yes      | Flask session secret (use a strong random value in production) |
-| `DATABASE_URL`        | No       | PostgreSQL connection string; omit for SQLite |
-
-The Maps key is loaded by the browser from `/api/config` and used on the server for link parsing and geocoding.
-
----
-
-## Location & Geocoding
-
-- Works for **any location** — no city lock-in; search and geocoding use the place name or Maps link you provide
-- **Map link wand**: resolves coordinates (Google Geocoding / Places when configured, OpenStreetMap Nominatim as fallback), then **rewrites the input** with a full `google.com/maps/place/.../@lat,lng` URL
-- **GPS button** on the owner form sets location when a short link cannot be parsed
-- **Area / Landmark** field can be geocoded if the link alone fails
-
----
-
-## API Reference
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/` | Frontend shell |
-| GET | `/api/config` | Public config (Maps key, flags) |
-| GET | `/api/listings` | Listings by `lat`, `lng`, `radius` (km) |
-| POST | `/api/create` | Create listing |
-| POST | `/api/listings/update` | Update listing |
-| POST | `/api/listings/delete` | Delete listing |
-| POST | `/api/utils/parse-map-url` | Parse/geocode Maps URL; returns `expanded_url` |
-| POST | `/api/utils/reverse-geocode` | lat/lng → address + expanded URL |
-| POST | `/api/utils/search-location` | Place name → coordinates |
-| POST | `/api/auth/send-otp` | Send email OTP |
-| POST | `/api/auth/verify-owner` | Verify OTP, create session |
-| GET | `/api/auth/me` | Current user |
-| POST | `/api/auth/logout` | Log out |
-
----
-
-## Authentication
-
-Owners sign in with email OTP. A 30-day session cookie is set after verification. The app calls `/api/auth/me` on load to restore the session.
-
----
-
-## Deployment
-
-```bash
-gunicorn main:app --bind 0.0.0.0:$PORT --workers 2
-```
-
-On HTTPS hosts, set `SESSION_COOKIE_SECURE = True` in `main.py` for production.
+* **Premium Theme**: Tailored HSL colors, ambient gradients, and backdrop filters inspired by `parkospace.xyz`.
+* **Dynamic Map Pins**: Displays spots as color-coded circle markers (Green for available, Red for sold-out). Current user position displays as a custom pulsing blue marker with a floating `YOU` label.
+* **Interactive Popups**: Clicking a marker opens detailed pricing (Hourly, Daily, Monthly), dimensions, landmark details, and quick action buttons (**Navigate** and **Call Owner**).
+* **Direct Sidebar Auto-focus**: Desktop sidebar and mobile drawer list full descriptions, pricing, and selected amenities. Clicking any listing automatically pans the map and triggers its detailed info popup.
+* **Geocoded Verification**: Partners paste a Maps link to list a space, and the backend automatically geocodes it, showing a verified address and coordinates before creation.
 
 ---
 
