@@ -266,22 +266,6 @@ function coordsFromText(text) {
     }
   }
 
-  // APP_INITIALIZATION_STATE: Google embeds coords as [[[value, lng, lat], ...]]
-  // Format: APP_INITIALIZATION_STATE=[[[someNumber, longitude, latitude], ...]
-  const appInitMatch = decoded.match(/APP_INITIALIZATION_STATE\s*=\s*\[\[\[([^\]]+)\]/);
-  if (appInitMatch) {
-    const parts = appInitMatch[1].split(',').map(s => parseFloat(s.trim()));
-    if (parts.length >= 3) {
-      const possibleLng = parts[1];
-      const possibleLat = parts[2];
-      if (possibleLat && possibleLng && 
-          Math.abs(possibleLat) <= 90 && Math.abs(possibleLng) <= 180 &&
-          !isNaN(possibleLat) && !isNaN(possibleLng)) {
-        return { lat: possibleLat, lng: possibleLng };
-      }
-    }
-  }
-
   return { lat: null, lng: null };
 }
 
@@ -335,17 +319,9 @@ async function fetchMapsFinalUrl(url) {
       return { finalUrl, html };
     }
 
-    // Check for coords in the HTML body (Google embeds them in page source)
-    if (html) {
-      const coords2 = coordsFromText(html.substring(0, 200000));
-      if (coords2.lat && coords2.lng) {
-        return { finalUrl, html };
-      }
-    }
-
     return { finalUrl, html };
   } catch (e1) {
-    console.warn(' [WARN] fetchMapsFinalUrl strategy-1 (full GET) failed:', e1.message);
+    console.warn(' [WARN] fetchMapsFinalUrl strategy-1 failed:', e1.message);
   }
 
   // Strategy 2: Manual redirect tracer with HEAD then GET (fallback)
@@ -413,51 +389,9 @@ async function resolveGoogleMapsUrl(url) {
       lat = coords.lat;
       lng = coords.lng;
       
-      if (!lat && html) {
-        const coordsHtml = coordsFromText(html.substring(0, 100000));
-        lat = coordsHtml.lat;
-        lng = coordsHtml.lng;
-      }
       if (!address) {
         address = placeNameFromText(finalUrl) || placeNameFromText(normUrl);
       }
-
-      const placeId = extractPlaceId(normUrl) || extractPlaceId(finalUrl) || (html ? extractPlaceId(html.substring(0, 100000)) : null);
-      if (!lat && placeId) {
-        const gRes = await googlePlaceDetails(placeId);
-        if (gRes.lat && gRes.lng) {
-          lat = gRes.lat;
-          lng = gRes.lng;
-          address = gRes.address || address;
-        }
-      }
-    }
-
-    // Fallback 1: Geocode place name if no coordinates
-    if (!lat && address) {
-      const [gLat, gLng, gAddr] = await geocodeText(address);
-      if (gLat && gLng) {
-        lat = gLat;
-        lng = gLng;
-        address = gAddr || address;
-      }
-    }
-
-    // Fallback 2: Check place details
-    if (!lat) {
-      const placeId = extractPlaceId(normUrl);
-      if (placeId) {
-        const gRes = await googlePlaceDetails(placeId);
-        if (gRes.lat && gRes.lng) {
-          lat = gRes.lat;
-          lng = gRes.lng;
-          address = gRes.address || address;
-        }
-      }
-    }
-
-    if (lat && lng && !address) {
-      address = await reverseGeocodeCoords(lat, lng) || 'Location Detected';
     }
 
     return { lat, lng, address, is404: false };
@@ -602,17 +536,30 @@ app.post('/api/utils/parse-map-url', async (req, res) => {
     });
   }
 
-  if (!lat && landmark) {
-    const [gLat, gLng, gAddr] = await geocodeText(landmark);
-    lat = gLat;
-    lng = gLng;
-    address = gAddr;
-  }
-
+  // If coordinates were found directly in the URL (desktop URL format)
   if (lat && lng) {
     return res.json(mapParseSuccess(lat, lng, address));
   }
-  return res.json({ success: false, error: "Could not detect location. Try a standard Google Maps link." });
+
+  // Fallback to client-side geocoding using the browser Google Maps library
+  // This bypasses the referrer restriction of the Google Maps API Key
+  if (address) {
+    return res.json({
+      success: true,
+      needsFrontendGeocoding: true,
+      addressText: address
+    });
+  }
+
+  if (landmark) {
+    return res.json({
+      success: true,
+      needsFrontendGeocoding: true,
+      addressText: landmark
+    });
+  }
+
+  return res.json({ success: false, error: "Could not detect location coordinates or address from link." });
 });
 
 // Reverse Geocode Coords

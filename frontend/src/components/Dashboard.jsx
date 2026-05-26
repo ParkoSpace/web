@@ -1,5 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { LogOut, Plus, Trash2, Edit2, Link, MapPin, CheckCircle, AlertTriangle, Loader, RefreshCw } from 'lucide-react';
+import { Loader as MapsLoader } from '@googlemaps/js-api-loader';
+
+// Helper to load Google Maps API client-side if not already loaded
+const loadGoogleMapsClientSide = async () => {
+  if (window.google && window.google.maps) {
+    return window.google;
+  }
+  const res = await fetch('/api/config');
+  const cfg = await res.json();
+  if (!cfg.hasGoogleMaps || !cfg.googleMapsApiKey) {
+    throw new Error('Google Maps is not configured on the server.');
+  }
+  const loader = new MapsLoader({
+    apiKey: cfg.googleMapsApiKey,
+    version: 'weekly',
+    libraries: ['places']
+  });
+  return await loader.load();
+};
 
 export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackToHome }) {
   const [listings, setListings] = useState([]);
@@ -106,15 +125,56 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
         body: JSON.stringify({ url: gmapLinkRegen, landmark })
       });
       const data = await response.json();
+      
       if (data.success) {
-        setVerifyStatus({
-          success: true,
-          lat: data.lat,
-          lng: data.lng,
-          address: data.address
-        });
-        if (data.expanded_url) {
-          setGmapLinkRegen(data.expanded_url);
+        if (data.needsFrontendGeocoding) {
+          // Perform geocoding client-side to satisfy Referrer Restrictions
+          try {
+            const google = await loadGoogleMapsClientSide();
+            const geocoder = new google.maps.Geocoder();
+            
+            geocoder.geocode({ address: data.addressText }, (results, status) => {
+              if (status === 'OK' && results[0]) {
+                const loc = results[0].geometry.location;
+                const latVal = loc.lat();
+                const lngVal = loc.lng();
+                const formattedAddress = results[0].formatted_address;
+
+                setVerifyStatus({
+                  success: true,
+                  lat: latVal,
+                  lng: lngVal,
+                  address: formattedAddress
+                });
+
+                // Generate expanded URL
+                const label = encodeURIComponent(String(formattedAddress).split(',')[0].substring(0, 100));
+                const regenUrl = `https://www.google.com/maps/place/${label}/@${latVal.toFixed(7)},${lngVal.toFixed(7)},17z/data=!3m1!4b1!4m6!3m5!1s0:0!8m2!3d${latVal.toFixed(7)}!4d${lngVal.toFixed(7)}`;
+                setGmapLinkRegen(regenUrl);
+              } else {
+                setVerifyStatus({
+                  success: false,
+                  error: `Could not verify address: "${data.addressText}". Google Maps Status: ${status}`
+                });
+              }
+            });
+          } catch (err) {
+            setVerifyStatus({
+              success: false,
+              error: `Client-side Maps error: ${err.message}`
+            });
+          }
+        } else {
+          // Coordinates found directly by backend parser
+          setVerifyStatus({
+            success: true,
+            lat: data.lat,
+            lng: data.lng,
+            address: data.address
+          });
+          if (data.expanded_url) {
+            setGmapLinkRegen(data.expanded_url);
+          }
         }
       } else {
         setVerifyStatus({
