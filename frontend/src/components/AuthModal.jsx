@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Mail, Phone, Lock, User, Eye, EyeOff, Loader, CheckCircle } from 'lucide-react';
 
-export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'login', onBackToHome }) {
+export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'login', onBackToHome, onFindParking }) {
   const [activeTab, setActiveTab] = useState(initialTab); // 'login' | 'register'
   const [step, setStep] = useState(1); // 1: Info, 2: OTP (for Register or Forgot Password)
   const [isForgot, setIsForgot] = useState(false);
@@ -251,10 +251,17 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
         {/* Form area */}
         <div className="p-6 max-h-[calc(100vh-130px)] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
           {/* Owners-only Warning Notice */}
-          <div className="mb-5 p-3.5 bg-teal-950/30 border border-teal-500/20 rounded-xl text-[11px] text-slate-350 leading-relaxed flex gap-2 shadow-inner">
+          <div className="mb-5 p-3.5 bg-teal-950/30 border border-teal-500/20 rounded-xl text-[11px] text-slate-355 leading-relaxed flex gap-2 shadow-inner">
             <span className="text-teal-400 font-bold flex-shrink-0">Notice:</span>
             <span>
-              This login and registration is <strong className="text-teal-400 font-semibold">only for parking space owners</strong>. If you are looking for a place to park, you do not need an account — just search on the map and call the owner.
+              This login and registration is <strong className="text-teal-400 font-semibold">only for parking space owners</strong>. If you want to search for parking, please{' '}
+              <button 
+                type="button" 
+                onClick={() => { if (onFindParking) onFindParking(); else onClose(); }}
+                className="text-teal-450 hover:text-teal-400 font-bold underline inline cursor-pointer outline-none border-none bg-transparent p-0"
+              >
+                click here
+              </button>.
             </span>
           </div>
 

@@ -98,6 +98,10 @@ export default function App() {
           setAuthModalOpen(false);
           setView('landing');
         }}
+        onFindParking={() => {
+          setAuthModalOpen(false);
+          setView('map');
+        }}
       />
     </div>
   );

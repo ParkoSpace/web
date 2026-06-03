@@ -54,9 +54,9 @@ db.initDb().then(async () => {
   console.error(" [ERROR] Database initialization failed:", err);
 });
 
-// Default map center when GPS unavailable
-const DEFAULT_LAT = 12.9927;
-const DEFAULT_LNG = 77.6676;
+// Default map center when GPS unavailable (geographical center of India)
+const DEFAULT_LAT = 20.5937;
+const DEFAULT_LNG = 78.9629;
 
 // --- GEOLOCATION & GEOCODING HELPERS ---
 
@@ -504,11 +504,14 @@ app.get('/api/listings', async (req, res) => {
       return res.json(allListings);
     }
 
+    const isIndiaDefault = (Math.abs(lat - 20.5937) < 0.01 && Math.abs(lng - 78.9629) < 0.01);
+    const effectiveRadius = isIndiaDefault ? 5000.0 : radius;
+
     const filtered = [];
     for (const l of allListings) {
       if (!l.lat || !l.lng) continue;
       const dist = haversineDistance(lat, lng, l.lat, l.lng);
-      if (dist <= radius) {
+      if (dist <= effectiveRadius) {
         l.distance = Math.round(dist * 100) / 100;
         filtered.push(l);
       }

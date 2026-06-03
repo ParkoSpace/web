@@ -15,7 +15,7 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
 
   const [listings, setListings] = useState([]);
   const [radius, setRadius] = useState(2); // Default to 2km radius search
-  const [userLoc, setUserLoc] = useState({ lat: 12.9927, lng: 77.6676 }); // default Bangalore center
+  const [userLoc, setUserLoc] = useState({ lat: 20.5937, lng: 78.9629 }); // default India center
   const [loading, setLoading] = useState(true);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapConfig, setMapConfig] = useState(null);
