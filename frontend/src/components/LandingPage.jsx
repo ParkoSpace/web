@@ -294,7 +294,7 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
           </div>
 
           <p className="font-mono text-[10px] tracking-wider text-slate-600 mt-2">
-            PARKING MARKETPLACE · MIT LICENSE · © 2026 PARKOSPACE
+            PARKING MARKETPLACE · PROPRIETARY & CLOSED SOURCE · © 2026 PARKOSPACE
           </p>
         </div>
       </footer>

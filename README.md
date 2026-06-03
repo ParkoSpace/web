@@ -106,4 +106,4 @@ Add these environment variables in your Render Web Service dashboard:
 
 ## License
 
-MIT License. Free to use, modify, and distribute.
+Proprietary & Closed Source. All rights reserved. No part of this repository may be reproduced, distributed, or transmitted in any form without prior permission.

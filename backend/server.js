@@ -5,6 +5,9 @@ const bcrypt = require('bcryptjs');
 const axios = require('axios');
 const uuid = require('uuid');
 const path = require('path');
+const crypto = require('crypto');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const db = require('./db');
 
 const app = express();
@@ -13,9 +16,47 @@ const PORT = process.env.PORT || 8080;
 // Load Env
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
-// Setup middleware
+const isProd = process.env.NODE_ENV === 'production';
+
+// Integrate Helmet for secure headers
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
+
+// Rate limiting setup
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200,
+  message: { success: false, error: 'Too many requests from this IP, please try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: { success: false, error: 'Too many login, register, or OTP attempts. Please try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Apply general API rate limiter to all /api endpoints
+app.use('/api', apiLimiter);
+
+// Setup secure CORS
+const allowedOrigins = process.env.ALLOWED_ORIGIN
+  ? process.env.ALLOWED_ORIGIN.split(',').map(o => o.trim())
+  : [];
+
 app.use(cors({
-  origin: true, // Allow all origins for dev or specify if needed
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (!isProd || allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -25,13 +66,26 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 // Setup Session (30 days persistence matching Flask)
+let sessionSecret = process.env.SECRET_KEY;
+if (isProd && (!sessionSecret || sessionSecret === 'parkospace-dev-secret-change-in-prod')) {
+  console.warn(" [WARNING] SECRET_KEY is not defined or is weak in production! Dynamically generating a secure key...");
+  sessionSecret = crypto.randomBytes(32).toString('hex');
+} else if (!sessionSecret) {
+  sessionSecret = 'parkospace-dev-secret-change-in-prod';
+}
+
+if (isProd) {
+  app.set('trust proxy', 1);
+}
+
 app.use(session({
-  secret: process.env.SECRET_KEY || 'parkospace-dev-secret-change-in-prod',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   name: 'parkospace.sid',
   cookie: {
-    secure: false, // Set true if using HTTPS
+    secure: isProd, // True if HTTPS (enabled behind trust proxy on Render)
+    httpOnly: true, // Prevents XSS cookie theft
     sameSite: 'lax',
     maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
   }
@@ -632,7 +686,8 @@ app.post('/api/create', async (req, res) => {
     await db.dbAddListing(newListing);
     return res.json({ success: true, listing: newListing });
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    console.error("Create listing error details:", err);
+    return res.status(500).json({ success: false, error: isProd ? 'An internal error occurred.' : err.message });
   }
 });
 
@@ -667,7 +722,8 @@ app.post('/api/listings/update', async (req, res) => {
     }
     return res.status(403).json({ success: false, error: "Update failed" });
   } catch (e) {
-    return res.status(500).json({ success: false, error: e.message });
+    console.error("Update listing error details:", e);
+    return res.status(500).json({ success: false, error: isProd ? 'An internal error occurred.' : e.message });
   }
 });
 
@@ -681,7 +737,8 @@ app.post('/api/listings/delete', async (req, res) => {
     }
     return res.status(403).json({ success: false, error: "Delete failed" });
   } catch (e) {
-    return res.status(500).json({ success: false, error: e.message });
+    console.error("Delete listing error details:", e);
+    return res.status(500).json({ success: false, error: isProd ? 'An internal error occurred.' : e.message });
   }
 });
 
@@ -716,7 +773,7 @@ app.post('/api/auth/check-duplicate', async (req, res) => {
 });
 
 // Register: Step 1 (Send OTP email)
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authLimiter, async (req, res) => {
   const name = (req.body.name || '').trim();
   const phone = (req.body.phone || '').trim();
   const email = (req.body.email || '').trim().toLowerCase();
@@ -752,7 +809,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // Register: Step 2 (Verify OTP & Create account)
-app.post('/api/auth/register/verify', async (req, res) => {
+app.post('/api/auth/register/verify', authLimiter, async (req, res) => {
   const name = (req.body.name || '').trim();
   const phone = (req.body.phone || '').trim();
   const email = (req.body.email || '').trim().toLowerCase();
@@ -797,7 +854,7 @@ app.post('/api/auth/register/verify', async (req, res) => {
 });
 
 // Login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
 
@@ -826,7 +883,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Forgot Password: Step 1 (Send OTP)
-app.post('/api/auth/forgot-password', async (req, res) => {
+app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   if (!email) {
     return res.status(400).json({ success: false, error: "Email is required" });
@@ -845,7 +902,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 });
 
 // Forgot Password: Step 2 (Reset password)
-app.post('/api/auth/reset-password', async (req, res) => {
+app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const code = (req.body.code || '').trim();
   const newPassword = req.body.new_password || '';
@@ -911,7 +968,8 @@ app.post('/api/auth/update-profile', async (req, res) => {
     return res.json({ success: true, user: req.session.user });
   } catch (err) {
     console.error(`[ERROR] Profile update failed: ${err.message}`);
-    return res.status(400).json({ success: false, error: err.message });
+    const isKnownError = err.message.includes("is already registered");
+    return res.status(400).json({ success: false, error: (isProd && !isKnownError) ? "Profile update failed due to a database error." : err.message });
   }
 });
 
