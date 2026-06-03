@@ -47,7 +47,10 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
       {/* ── NAV ── */}
       <nav className="fixed top-0 left-0 right-0 z-50 px-5 sm:px-8 py-4 flex items-center justify-between"
            style={{ background: 'rgba(6,6,15,0.82)', backdropFilter: 'blur(28px) saturate(180%)', WebkitBackdropFilter: 'blur(28px) saturate(180%)', borderBottom: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 1px 0 rgba(255,255,255,0.03), 0 8px 32px rgba(0,0,0,0.4)' }}>
-        <div className="flex items-center gap-3">
+        <div 
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} 
+          className="flex items-center gap-3 cursor-pointer hover:opacity-90 transition select-none"
+        >
           <img src="/logo.png" alt="ParkoSpace" className="h-9 w-9 object-contain" />
           <div>
             <div className="font-display text-xl tracking-wider leading-none" style={{ color: '#00d4ff' }}>
@@ -258,7 +261,10 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
       {/* ── FOOTER ── */}
       <footer className="px-6 py-12 text-center mt-auto" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.15)' }}>
         <div className="max-w-4xl mx-auto flex flex-col items-center gap-6">
-          <div className="flex items-center justify-center gap-3">
+          <div 
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} 
+            className="flex items-center justify-center gap-3 cursor-pointer hover:opacity-90 transition select-none"
+          >
             <img src="/logo.png" alt="Logo" className="h-6 w-6 object-contain" style={{ opacity: 0.7 }} />
             <span className="font-display text-lg font-bold tracking-wider" style={{ color: '#00d4ff', letterSpacing: '0.06em' }}>PARKOSPACE</span>
           </div>

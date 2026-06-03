@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Mail, Phone, Lock, User, Eye, EyeOff, Loader, CheckCircle } from 'lucide-react';
 
-export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'login' }) {
+export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'login', onBackToHome }) {
   const [activeTab, setActiveTab] = useState(initialTab); // 'login' | 'register'
   const [step, setStep] = useState(1); // 1: Info, 2: OTP (for Register or Forgot Password)
   const [isForgot, setIsForgot] = useState(false);
@@ -233,7 +233,10 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
         
         {/* Header */}
         <div className="flex justify-between items-center px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-          <div className="flex items-center gap-2">
+          <div 
+            onClick={() => { if (onBackToHome) { onBackToHome(); } else { onClose(); } }}
+            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition select-none"
+          >
             <img src="/logo.png" alt="ParkoSpace" className="h-6 w-6 object-contain" />
             <span className="font-bold text-teal-400 tracking-wider text-sm font-mono">PARKOSPACE</span>
           </div>

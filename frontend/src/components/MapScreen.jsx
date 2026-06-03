@@ -533,29 +533,17 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-900 overflow-hidden relative">
       
-      {/* Search Header */}
+      {/* Header */}
       <div className="px-4 py-3 bg-slate-950/80 backdrop-blur-lg border-b border-slate-800 flex items-center justify-between gap-3 flex-shrink-0 z-30">
-        <div onClick={onBackToHome} className="hidden md:flex items-center gap-2 cursor-pointer">
+        <div onClick={onBackToHome} className="flex items-center gap-2 cursor-pointer select-none hover:opacity-90 transition">
           <img src="/logo.png" className="h-7 w-7 object-contain" alt="ParkoSpace" />
           <span className="font-display text-teal-400 tracking-wider text-lg uppercase">
             PARKO<span className="text-slate-400">SPACE</span>
           </span>
         </div>
 
-        {/* Search Input Box */}
-        <div className="flex-1 max-w-lg flex gap-2">
-          <div className="relative flex-1">
-            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500">
-              <Search className="w-4 h-4" />
-            </span>
-            <input
-              id="map-search-input"
-              type="text"
-              placeholder="Search area (e.g. Mumbai, Andheri, London)..."
-              onKeyPress={handleSearchKeyPress}
-              className="w-full bg-slate-900 border border-slate-800 rounded-full py-2 pl-10 pr-4 text-xs md:text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-teal-500 transition"
-            />
-          </div>
+        <div className="flex items-center gap-3">
+          {/* Locate User Button */}
           <button
             onClick={() => locateUser()}
             className="p-2.5 bg-slate-900 border border-slate-800 text-slate-400 hover:text-white rounded-full transition cursor-pointer flex-shrink-0"
@@ -563,29 +551,29 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
           >
             <Crosshair className="w-4 h-4" />
           </button>
-        </div>
 
-       {/* Desktop Radius Slider */}
-       <div className="hidden sm:flex items-center gap-3 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl flex-shrink-0">
-         <span className="text-[10px] font-mono font-bold tracking-wider text-slate-500 uppercase">Radius</span>
-         <input
-           type="range"
-           min="1"
-           max="20"
-           value={radius}
-           onChange={handleRadiusChange}
-           className="w-20 md:w-28 accent-teal-500 cursor-pointer h-1"
-         />
-         <span className="text-xs font-mono font-bold text-teal-400 w-10 text-right">{radius}km</span>
-       </div>
+          {/* Desktop Radius Slider */}
+          <div className="hidden sm:flex items-center gap-3 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl flex-shrink-0">
+            <span className="text-[10px] font-mono font-bold tracking-wider text-slate-500 uppercase">Radius</span>
+            <input
+              type="range"
+              min="1"
+              max="20"
+              value={radius}
+              onChange={handleRadiusChange}
+              className="w-20 md:w-28 accent-teal-500 cursor-pointer h-1"
+            />
+            <span className="text-xs font-mono font-bold text-teal-400 w-10 text-right">{radius}km</span>
+          </div>
 
-        <div>
-          <button
-            onClick={onOpenAuth}
-            className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl transition cursor-pointer"
-          >
-            {currentUser ? 'Dashboard' : 'Owner Login'}
-          </button>
+          <div>
+            <button
+              onClick={onOpenAuth}
+              className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+            >
+              {currentUser ? 'Dashboard' : 'Owner Login'}
+            </button>
+          </div>
         </div>
       </div>
 

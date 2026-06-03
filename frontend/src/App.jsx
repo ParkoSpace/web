@@ -94,6 +94,10 @@ export default function App() {
         onClose={() => setAuthModalOpen(false)}
         initialTab={authInitialTab}
         onSuccess={handleAuthSuccess}
+        onBackToHome={() => {
+          setAuthModalOpen(false);
+          setView('landing');
+        }}
       />
     </div>
   );
