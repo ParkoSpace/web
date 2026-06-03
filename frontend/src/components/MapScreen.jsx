@@ -396,7 +396,7 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
     return `
       <div style="min-width:240px; font-family: sans-serif; padding: 6px; color: #f3f4f6;">
         <h3 style="font-weight: 700; font-size: 14px; margin-bottom: 4px; color: #ffffff;">${l.title}</h3>
-        ${l.area_landmark ? `<p style="font-size: 11px; color: #00d4ff; margin-bottom: 8px;">📍 ${l.area_landmark}</p>` : ''}
+        ${l.area_landmark ? `<p style="font-size: 11px; color: #00d4ff; margin-bottom: 8px;">${l.area_landmark}</p>` : ''}
         ${l.desc ? `<p style="font-size: 11px; color: #9ca3af; margin-bottom: 10px; line-height: 1.4; word-break: break-word;">${l.desc}</p>` : ''}
         
         ${l.amenities && l.amenities.length > 0 ? `
@@ -584,7 +584,7 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
             onClick={onOpenAuth}
             className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl transition cursor-pointer"
           >
-            {currentUser ? 'Dashboard' : 'Partner Portal'}
+            {currentUser ? 'Dashboard' : 'Owner Login'}
           </button>
         </div>
       </div>
@@ -596,10 +596,10 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
         <div className="hidden md:flex flex-col w-96 bg-slate-950 border-r border-slate-800/80 flex-shrink-0 z-20 overflow-y-auto">
           <div className="px-5 py-4 border-b border-slate-900 flex justify-between items-center bg-slate-950/50">
             <span className="text-xs font-bold text-slate-400 font-mono flex items-center gap-1.5">
-              <MapPin className="w-4 h-4 text-rose-500" /> NEARBY PARKING SPOTS
+              <MapPin className="w-4 h-4 text-rose-500" /> NEARBY PARKING SPACES
             </span>
             <span className="px-2.5 py-0.5 rounded bg-slate-900 text-[10px] font-bold text-slate-500 font-mono">
-              {listings.length} spots
+              {listings.length} spaces
             </span>
           </div>
 
@@ -607,7 +607,7 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
             {loading && listings.length === 0 ? (
               <div className="text-center py-10 text-slate-500">
                 <LucideLoader className="w-6 h-6 animate-spin text-teal-500 mx-auto mb-2" />
-                <span className="text-[10px] font-mono uppercase tracking-wider">SEARCHING SPOTS…</span>
+                <span className="text-[10px] font-mono uppercase tracking-wider">SEARCHING PARKING…</span>
               </div>
             ) : listings.length === 0 ? (
               <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl">
@@ -628,7 +628,7 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
                     </span>
                   </div>
                   {l.area_landmark && (
-                    <p className="text-[10px] text-slate-500 truncate mb-2">📍 {l.area_landmark}</p>
+                    <p className="text-[10px] text-slate-500 truncate mb-2">{l.area_landmark}</p>
                   )}
                   
                   {/* Spot Description */}
@@ -737,11 +737,11 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
           >
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-rose-500" />
-              <span className="text-xs font-bold text-slate-400 font-mono uppercase tracking-wider">NEARBY PARKING SPOTS</span>
-              <span className="px-2 py-0.5 rounded bg-slate-900 text-[10px] font-bold text-slate-500 font-mono">
-                {listings.length} spots
-              </span>
+              <span className="text-xs font-bold text-slate-400 font-mono uppercase tracking-wider">NEARBY PARKING SPACES</span>
             </div>
+            <span className="px-2.5 py-0.5 rounded bg-slate-900 text-[10px] font-bold text-slate-500 font-mono">
+              {listings.length} spaces
+            </span>
             
             <button className="text-slate-400 hover:text-white p-1">
               {drawerExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
@@ -756,7 +756,7 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
                 <span className="text-[9px] font-mono uppercase">Searching...</span>
               </div>
             ) : listings.length === 0 ? (
-              <p className="text-xs text-slate-500 text-center py-6">No spots in radius. Expand radius using the slider.</p>
+              <p className="text-xs text-slate-500 text-center py-6">No parking spaces in radius. Expand search distance using the slider.</p>
             ) : (
               listings.map(l => (
                 <div
@@ -771,7 +771,7 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
                     </span>
                   </div>
                   {l.area_landmark && (
-                    <p className="text-[9px] text-slate-500 truncate mb-2">📍 {l.area_landmark}</p>
+                    <p className="text-[9px] text-slate-500 truncate mb-2">{l.area_landmark}</p>
                   )}
 
                   {/* Spot Description */}
@@ -816,7 +816,7 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
                   {!l.is_sold ? (
                     <div className="mt-3 pt-3 border-t border-slate-800/60 flex gap-2">
                       <a
-                        href={l.gmap_link}
+                        href={l.lat && l.lng ? `https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}` : l.gmap_link}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex-1 py-1.5 bg-teal-400 hover:bg-teal-300 text-slate-950 font-bold text-[10px] rounded-lg text-center transition flex items-center justify-center gap-1"

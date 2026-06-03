@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut, Plus, Trash2, Edit2, Link, MapPin, CheckCircle, AlertTriangle, Loader, RefreshCw } from 'lucide-react';
+import { LogOut, Plus, Trash2, Edit2, Link, MapPin, CheckCircle, AlertTriangle, Loader, RefreshCw, Crosshair, HelpCircle } from 'lucide-react';
 import { Loader as MapsLoader } from '@googlemaps/js-api-loader';
 
 // Helper to load Google Maps API client-side if not already loaded
@@ -15,7 +15,8 @@ const loadGoogleMapsClientSide = async () => {
   const loader = new MapsLoader({
     apiKey: cfg.googleMapsApiKey,
     version: 'weekly',
-    libraries: ['places']
+    libraries: ['places', 'marker'],
+    mapIds: [cfg.googleMapsMapId || '6062647ef5491f7110b5de54']
   });
   return await loader.load();
 };
@@ -101,6 +102,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
   const [gmapLinkRegen, setGmapLinkRegen] = useState('');
   const [isSold, setIsSold] = useState(false);
   const [amenities, setAmenities] = useState([]);
+  const [showHelpCard, setShowHelpCard] = useState(false);
 
   // Geocoding Verify Status
   const [verifyLoading, setVerifyLoading] = useState(false);
@@ -141,6 +143,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
     setIsSold(false);
     setAmenities([]);
     setVerifyStatus(null);
+    setShowHelpCard(false);
     setIsFormOpen(true);
   };
 
@@ -165,7 +168,82 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
       lng: l.lng,
       address: l.address_text || 'Coordinates configured'
     });
+    setShowHelpCard(false);
     setIsFormOpen(true);
+  };
+
+  // Fetch coordinates from browser Geolocation
+  const handleFetchGPSLocation = () => {
+    if (!navigator.geolocation) {
+      alert("GPS Geolocation is not supported by your browser.");
+      return;
+    }
+    setVerifyLoading(true);
+    setVerifyStatus(null);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const latVal = position.coords.latitude;
+        const lngVal = position.coords.longitude;
+
+        try {
+          // Attempt client-side reverse geocoding if Google Maps is loaded
+          const google = await loadGoogleMapsClientSide();
+          const geocoder = new google.maps.Geocoder();
+
+          geocoder.geocode({ location: { lat: latVal, lng: lngVal } }, (results, status) => {
+            if (status === 'OK' && results[0]) {
+              const formattedAddress = results[0].formatted_address;
+              setVerifyStatus({
+                success: true,
+                lat: latVal,
+                lng: lngVal,
+                address: formattedAddress
+              });
+              // Generate separate links:
+              // 1. Navigation URL: Universal directions URL so it works on all devices!
+              const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${latVal.toFixed(7)},${lngVal.toFixed(7)}`;
+              // 2. Verification URL: Coordinate-based place URL for system verification
+              const label = encodeURIComponent(String(formattedAddress).split(',')[0].substring(0, 100));
+              const regenUrl = `https://www.google.com/maps/place/${label}/@${latVal.toFixed(7)},${lngVal.toFixed(7)},17z/data=!3m1!4b1!4m6!3m5!1s0:0!8m2!3d${latVal.toFixed(7)}!4d${lngVal.toFixed(7)}`;
+              
+              setGmapLink(navUrl);
+              setGmapLinkRegen(regenUrl);
+            } else {
+              setVerifyStatus({
+                success: true,
+                lat: latVal,
+                lng: lngVal,
+                address: `GPS Location (${latVal.toFixed(6)}, ${lngVal.toFixed(6)})`
+              });
+              const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${latVal.toFixed(7)},${lngVal.toFixed(7)}`;
+              const regenUrl = `https://www.google.com/maps/place/@${latVal.toFixed(7)},${lngVal.toFixed(7)},17z/data=!3m1!4b1!4m6!3m5!1s0:0!8m2!3d${latVal.toFixed(7)}!4d${lngVal.toFixed(7)}`;
+              setGmapLink(navUrl);
+              setGmapLinkRegen(regenUrl);
+            }
+            setVerifyLoading(false);
+          });
+        } catch (err) {
+          // Fallback if google maps is not configured or fails
+          setVerifyStatus({
+            success: true,
+            lat: latVal,
+            lng: lngVal,
+            address: `GPS Location (${latVal.toFixed(6)}, ${lngVal.toFixed(6)})`
+          });
+          const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${latVal.toFixed(7)},${lngVal.toFixed(7)}`;
+          const regenUrl = `https://www.google.com/maps/place/@${latVal.toFixed(7)},${lngVal.toFixed(7)},17z/data=!3m1!4b1!4m6!3m5!1s0:0!8m2!3d${latVal.toFixed(7)}!4d${lngVal.toFixed(7)}`;
+          setGmapLink(navUrl);
+          setGmapLinkRegen(regenUrl);
+          setVerifyLoading(false);
+        }
+      },
+      (error) => {
+        setVerifyLoading(false);
+        alert(`Error getting GPS location: ${error.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   // Run location verification from Google Maps URL
@@ -364,7 +442,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this parking spot?')) return;
+    if (!confirm('Are you sure you want to delete this parking space?')) return;
     setLoading(true);
 
     try {
@@ -393,7 +471,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
         <div onClick={onBackToHome} className="flex items-center gap-3 cursor-pointer">
           <img src="/logo.png" alt="ParkoSpace" className="h-7 w-7 object-contain" />
           <span className="font-display text-teal-400 tracking-wider text-lg">PARKOSPACE</span>
-          <span className="px-2 py-0.5 rounded bg-teal-950 border border-teal-800 text-[9px] text-teal-400 font-mono font-bold uppercase tracking-wider hidden sm:inline-block">PARTNER</span>
+          <span className="px-2 py-0.5 rounded bg-teal-950 border border-teal-800 text-[9px] text-teal-400 font-mono font-bold uppercase tracking-wider hidden sm:inline-block">OWNER</span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -427,7 +505,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
               onClick={handleOpenCreate}
               className="w-full sm:w-auto px-5 py-3 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-teal-900/20 hover:shadow-teal-900/30 transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Plus className="w-4 h-4" /> List New Spot
+              <Plus className="w-4 h-4" /> Add a New Space
             </button>
           )}
         </div>
@@ -442,7 +520,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
                 : 'border-transparent text-slate-500 hover:text-slate-300'
             }`}
           >
-            My Listings
+            My Parking Spaces
           </button>
           <button
             onClick={() => setActiveTab('settings')}
@@ -473,9 +551,8 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
               </div>
             ) : listings.length === 0 ? (
               <div className="text-center py-20 border border-dashed border-slate-800 rounded-2xl bg-slate-950/20">
-                <div className="text-3xl mb-4">🅿️</div>
-                <h3 className="text-sm font-semibold text-slate-300 mb-1">No Active Listings</h3>
-                <p className="text-xs text-slate-500 max-w-xs mx-auto mb-6">Start monetization. List your unused driveway, garage, or parking bay today.</p>
+                <h3 className="text-sm font-semibold text-slate-300 mb-1">No Active Parking Spaces</h3>
+                <p className="text-xs text-slate-500 max-w-xs mx-auto mb-6">Start earning money. Add your unused driveway, garage, or parking space today.</p>
                 <button
                   onClick={handleOpenCreate}
                   className="px-4 py-2 border border-teal-500/30 hover:border-teal-500 text-teal-400 hover:bg-teal-950/20 text-xs font-bold rounded-xl transition cursor-pointer"
@@ -555,14 +632,14 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
                         <button
                           onClick={() => handleOpenEdit(l)}
                           className="p-2 border border-slate-800 hover:border-slate-700 bg-slate-900 text-slate-400 hover:text-white rounded-xl transition cursor-pointer"
-                          title="Edit spot details"
+                          title="Edit parking details"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDelete(l.id)}
                           className="p-2 border border-red-950/30 hover:border-red-900/60 bg-slate-900 text-red-400 hover:text-red-300 rounded-xl transition cursor-pointer"
-                          title="Delete spot"
+                          title="Delete parking space"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -578,7 +655,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
         {activeTab === 'settings' && (
           <div className="max-w-xl bg-slate-950/40 border border-slate-800/80 rounded-2xl p-6 shadow-xl">
             <h2 className="text-base font-bold text-white mb-6 flex items-center gap-2">
-              ⚙️ Partner Profile Settings
+              Owner Profile Settings
             </h2>
 
             {profileError && (
@@ -657,7 +734,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
             {/* Form Header */}
             <div className="flex justify-between items-center px-6 py-4 border-b border-slate-800 bg-slate-900/50">
               <h2 className="font-bold text-white text-base">
-                {editListing ? 'Edit Parking Spot' : 'List New Parking Spot'}
+                {editListing ? 'Edit Parking Space' : 'Add a New Space'}
               </h2>
               <button
                 onClick={() => setIsFormOpen(false)}
@@ -671,7 +748,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
             <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
               
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Spot Title</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Space Name (e.g. Garage, Driveway)</label>
                 <input
                   type="text"
                   required
@@ -736,53 +813,127 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
               </div>
 
               {/* Location Group (URLs and Verification Result) */}
-              <div>
-                {/* Location URLs (Navigation & Verification) */}
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">Google Maps Navigation Link</label>
-                    <input
-                      type="text"
-                      placeholder="Paste maps link here..."
-                      value={gmapLink}
-                      onChange={(e) => setGmapLink(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-teal-500 transition"
-                    />
+              <div className="border border-slate-800/60 rounded-2xl p-4 bg-slate-950/20 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-355">Space Location Coordinates</span>
+                  
+                  {/* GPS Locator Button */}
+                  <button
+                    type="button"
+                    onClick={handleFetchGPSLocation}
+                    disabled={verifyLoading}
+                    className="px-3 py-1.5 bg-teal-950/40 border border-teal-800 hover:border-teal-700 text-teal-400 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="Retrieve coordinates from your device's current location"
+                  >
+                    <Crosshair className="w-3.5 h-3.5" />
+                    Use Current GPS Location
+                  </button>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-300">Google Maps Link (Navigation URL)</label>
+                    
+                    {/* Help Guide Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setShowHelpCard(!showHelpCard)}
+                      className="text-xs text-teal-400 hover:text-teal-350 font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      How to get Maps link?
+                    </button>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">Google Maps Verification Link</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="Paste verification link here..."
-                        value={gmapLinkRegen}
-                        onChange={(e) => setGmapLinkRegen(e.target.value)}
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-teal-500 transition"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleVerifyLocation}
-                        disabled={verifyLoading}
-                        className="px-4 bg-slate-950 border border-slate-800 hover:border-slate-700 text-teal-400 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer flex-shrink-0"
-                      >
-                        {verifyLoading ? (
-                          <Loader className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <RefreshCw className="w-3.5 h-3.5" />
-                        )}
-                        Verify
-                      </button>
+                  <input
+                    type="text"
+                    placeholder="Paste navigation maps link here..."
+                    value={gmapLink}
+                    onChange={(e) => setGmapLink(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-teal-500 transition"
+                  />
+                  
+                  {/* Google Maps link guide instructions */}
+                  {showHelpCard && (
+                    <div className="mt-2.5 p-4 bg-slate-950 border border-teal-800/20 rounded-xl space-y-3.5 text-xs text-slate-300 transition-all duration-300 shadow-inner">
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-900">
+                        <span className="font-bold text-teal-400 flex items-center gap-1.5">
+                          Guide: Copying your Google Maps Link
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowHelpCard(false)}
+                          className="text-[10px] text-slate-500 hover:text-slate-300 font-bold"
+                        >
+                          Close
+                        </button>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 gap-3.5">
+                        <div>
+                          <span className="block font-bold text-white text-[11px] mb-1 font-mono uppercase tracking-wider">Android Phone / Tablet</span>
+                          <ol className="list-decimal pl-4.5 space-y-1 text-slate-400">
+                            <li>Open the <strong>Google Maps</strong> app.</li>
+                            <li>Press and hold (long press) on the map exactly where your parking space is to drop a red pin.</li>
+                            <li>Tap the <strong>Share</strong> button at the bottom of the screen, and select <strong>Copy link</strong>.</li>
+                          </ol>
+                        </div>
+                        
+                        <div className="border-t border-slate-900/60 pt-2">
+                          <span className="block font-bold text-white text-[11px] mb-1 font-mono uppercase tracking-wider">iPhone / iOS Device</span>
+                          <ol className="list-decimal pl-4.5 space-y-1 text-slate-400">
+                            <li>Open the <strong>Google Maps</strong> app.</li>
+                            <li>Press and hold (long press) on your parking space location to drop a red pin.</li>
+                            <li>Tap the pin address details/card at the bottom, then tap the <strong>Share</strong> button.</li>
+                            <li>Select <strong>Copy</strong> to copy the link.</li>
+                          </ol>
+                        </div>
+                        
+                        <div className="border-t border-slate-900/60 pt-2">
+                          <span className="block font-bold text-white text-[11px] mb-1 font-mono uppercase tracking-wider">PC (Computer / Web Browser)</span>
+                          <ol className="list-decimal pl-4.5 space-y-1 text-slate-400">
+                            <li>Go to <a href="https://maps.google.com" target="_blank" rel="noreferrer" className="text-teal-400 hover:underline">maps.google.com</a>.</li>
+                            <li>Click directly on the exact spot of your parking space.</li>
+                            <li>Copy the full website link (URL) from the address bar at the top of your web browser.</li>
+                          </ol>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-[10px] text-slate-500 mt-1.5 font-medium italic">
-                      * Note: Don't worry if the URL changes after clicking verify.
-                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Google Maps Link (Verification Link)</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Paste verification link here..."
+                      value={gmapLinkRegen}
+                      onChange={(e) => setGmapLinkRegen(e.target.value)}
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-teal-500 transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleVerifyLocation}
+                      disabled={verifyLoading}
+                      className="px-4 bg-slate-950 border border-slate-800 hover:border-slate-700 text-teal-400 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer flex-shrink-0"
+                    >
+                      {verifyLoading ? (
+                        <Loader className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      )}
+                      Verify
+                    </button>
                   </div>
+                  <p className="text-[10px] text-slate-500 mt-1.5 font-medium italic">
+                    * Note: Verify updates the exact location coordinates on our search map.
+                  </p>
                 </div>
 
                 {/* Geocoding results view */}
                 {verifyStatus && (
-                  <div className={`mt-3 p-3.5 rounded-xl border text-[11px] leading-relaxed flex gap-2.5 items-start ${
+                  <div className={`p-3.5 rounded-xl border text-[11px] leading-relaxed flex gap-2.5 items-start ${
                     verifyStatus.success 
                       ? 'bg-emerald-950/20 border-emerald-800/50 text-emerald-400' 
                       : 'bg-red-950/20 border-red-900/50 text-red-400'
@@ -791,7 +942,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
                       <>
                         <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
                         <div>
-                          <strong className="block text-xs text-emerald-300 mb-0.5">Location Verified</strong>
+                          <strong className="block text-xs text-emerald-300 mb-0.5">Location Coordinates Setup</strong>
                           <span>{verifyStatus.address}</span>
                           <span className="block font-mono text-[9px] text-slate-500 mt-1">{verifyStatus.lat.toFixed(6)}, {verifyStatus.lng.toFixed(6)}</span>
                         </div>
@@ -870,8 +1021,8 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
               {/* Availability Status */}
               <div className="flex items-center justify-between p-3.5 bg-slate-950 border border-slate-800 rounded-xl">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300">Mark as Sold Out</label>
-                  <p className="text-[10px] text-slate-500 mt-0.5">Toggle this if the spot is temporarily occupied or unavailable.</p>
+                  <label className="block text-xs font-semibold text-slate-300">Mark as Occupied / Full</label>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Toggle this if the space is temporarily occupied or full.</p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
@@ -897,7 +1048,7 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
                   type="submit"
                   className="flex-[2] py-3 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-teal-900/20 hover:shadow-teal-900/30 transition flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  {editListing ? 'Save Changes' : 'Publish Spot'}
+                  {editListing ? 'Save Changes' : 'Publish Space'}
                 </button>
               </div>
 

@@ -654,7 +654,8 @@ app.post('/api/listings/update', async (req, res) => {
       is_sold: !!data.is_sold,
       lat: data.lat,
       lng: data.lng,
-      address_text: data.address_text
+      address_text: data.address_text,
+      amenities: data.amenities
     };
 
     const success = await db.dbUpdateListing(lid, updateData, ownerPhone);

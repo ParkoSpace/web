@@ -6,7 +6,7 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
   const chatData = useRef([
     { id: 1, sender: 'Arjun', fullText: "I finally bought my first car today! I'm so happy. I just pulled into our lane… but now I can't find any parking near my home.", side: 'left', senderClass: 'text-purple-400' },
     { id: 2, sender: 'Rohan', fullText: "Yeah, man. These days getting a parking space is nearly impossible. Everywhere is full.", side: 'left', senderClass: 'text-pink-400' },
-    { id: 3, sender: 'ParkoSpace', fullText: "No problem. We've got you covered! Find verified nearby parking spots instantly — safe, easy, and affordable.", side: 'right', senderClass: 'text-teal-400' }
+    { id: 3, sender: 'ParkoSpace', fullText: "No problem. We've got you covered! Find verified nearby parking spaces instantly — safe, easy, and affordable.", side: 'right', senderClass: 'text-teal-400' }
   ]);
 
   const [chatMessages, setChatMessages] = useState(
@@ -65,7 +65,7 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
           >
             {currentUser ? (
               <span className="flex flex-col items-center leading-none text-[10px] uppercase font-mono tracking-wider" style={{ color: '#00d4ff' }}>Dashboard</span>
-            ) : 'Partner'}
+            ) : 'Owner Login'}
           </button>
           <button 
             onClick={onFindParking}
@@ -112,14 +112,14 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
             className="px-9 py-3.5 rounded-xl border-none cursor-pointer font-bold flex items-center gap-2 transition"
             style={{ background: '#00d4ff', color: '#05050f', fontSize: '1rem' }}
           >
-            <Search className="w-5 h-5" /> Find a Spot
+            <Search className="w-5 h-5" /> Find Parking
           </button>
           <button 
             onClick={onPartnerClick}
             className="px-9 py-3.5 rounded-xl cursor-pointer font-bold flex items-center gap-2 transition"
             style={{ border: '2px solid #f72585', color: '#f72585', background: 'transparent', fontSize: '1rem' }}
           >
-            <Plus className="w-5 h-5" /> List My Space
+            <Plus className="w-5 h-5" /> Add My Space
           </button>
         </div>
 
@@ -210,9 +210,9 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             {[
-              { num: '01', icon: <MapPin className="w-5 h-5" />, title: 'Find Your Area', desc: 'Search any city or neighbourhood. Verified parking spots appear on a live Google Map.', color: '#00d4ff' },
+              { num: '01', icon: <MapPin className="w-5 h-5" />, title: 'Find Your Area', desc: 'Search any city or neighbourhood. Verified parking spaces appear on a live Google Map.', color: '#00d4ff' },
               { num: '02', icon: <PhoneCall className="w-5 h-5" />, title: 'Contact the Owner', desc: 'Call the space owner directly — no middleman, no booking fee. Just a direct phone call.', color: '#9b5de5' },
-              { num: '03', icon: <Car className="w-5 h-5" />, title: 'Park & Go', desc: 'Navigate with Google Maps, reach the spot, and settle with the owner directly. Done.', color: '#06ffa5' }
+              { num: '03', icon: <Car className="w-5 h-5" />, title: 'Park & Go', desc: 'Navigate with Google Maps, reach the space, and settle with the owner directly. Done.', color: '#06ffa5' }
             ].map(step => (
               <div 
                 key={step.num} 
@@ -272,7 +272,7 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
               </p>
               <h4 className="font-semibold text-slate-300 uppercase tracking-wider mb-2 font-mono">2. Verification Mandate</h4>
               <p>
-                Parkers are advised to contact the space owner directly and verify listing details, dimensions, accessibility, and final pricing before traveling to the parking spot.
+                Parkers are advised to contact the space owner directly and verify parking space details, size, accessibility, and final price before traveling to the parking space.
               </p>
             </div>
             <div>
