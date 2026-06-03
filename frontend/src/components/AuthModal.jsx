@@ -254,14 +254,14 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
           <div className="mb-5 p-3.5 bg-teal-950/30 border border-teal-500/20 rounded-xl text-[11px] text-slate-355 leading-relaxed flex gap-2 shadow-inner">
             <span className="text-teal-400 font-bold flex-shrink-0">Notice:</span>
             <span>
-              This login and registration is <strong className="text-teal-400 font-semibold">only for parking space owners</strong>. If you want to search for parking, please{' '}
+              This login and registration is <strong className="text-teal-400 font-semibold">only for parking space owners</strong>. To search parking{' '}
               <button 
                 type="button" 
                 onClick={() => { if (onFindParking) onFindParking(); else onClose(); }}
                 className="text-teal-450 hover:text-teal-400 font-bold underline inline cursor-pointer outline-none border-none bg-transparent p-0"
               >
                 click here
-              </button>.
+              </button>
             </span>
           </div>
 
