@@ -49,15 +49,31 @@ const allowedOrigins = process.env.ALLOWED_ORIGIN
   ? process.env.ALLOWED_ORIGIN.split(',').map(o => o.trim())
   : [];
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (!isProd || allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    }
-    return callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true
+app.use(cors((req, callback) => {
+  const origin = req.header('Origin');
+  let corsOptions;
+
+  if (!origin) {
+    corsOptions = { origin: true, credentials: true };
+    return callback(null, corsOptions);
+  }
+
+  const host = req.header('Host');
+  const forwardedHost = req.header('X-Forwarded-Host');
+
+  const cleanOrigin = origin.replace(/^https?:\/\//, '').split(':')[0];
+  const cleanHost = host ? host.split(':')[0] : '';
+  const cleanForwardedHost = forwardedHost ? forwardedHost.split(':')[0] : '';
+
+  const isSameOrigin = (cleanOrigin === cleanHost || (cleanForwardedHost && cleanOrigin === cleanForwardedHost));
+
+  if (!isProd || isSameOrigin || allowedOrigins.indexOf(origin) !== -1) {
+    corsOptions = { origin: true, credentials: true };
+  } else {
+    corsOptions = { origin: false };
+  }
+
+  callback(null, corsOptions);
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
