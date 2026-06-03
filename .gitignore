@@ -37,3 +37,7 @@ Thumbs.db
 
 # Agent / Scratch scripts
 scratch/
+
+# Database Backups & Dumps
+db_backups/
+*.sql

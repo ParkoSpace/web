@@ -84,6 +84,7 @@ export default function App() {
           onLogout={handleLogout}
           onBackToMap={() => setView('map')}
           onBackToHome={() => setView('landing')}
+          onUpdateUser={setCurrentUser}
         />
       )}
 

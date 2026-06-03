@@ -256,14 +256,41 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
       </section>
 
       {/* ── FOOTER ── */}
-      <footer className="px-6 py-10 text-center mt-auto" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-        <div className="flex items-center justify-center gap-3 mb-2.5">
-          <img src="/logo.png" alt="Logo" className="h-5.5 w-5.5 object-contain" style={{ opacity: 0.5 }} />
-          <span className="font-display text-lg tracking-wider" style={{ color: '#00d4ff', letterSpacing: '0.06em' }}>PARKOSPACE</span>
+      <footer className="px-6 py-12 text-center mt-auto" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.15)' }}>
+        <div className="max-w-4xl mx-auto flex flex-col items-center gap-6">
+          <div className="flex items-center justify-center gap-3">
+            <img src="/logo.png" alt="Logo" className="h-6 w-6 object-contain" style={{ opacity: 0.7 }} />
+            <span className="font-display text-lg font-bold tracking-wider" style={{ color: '#00d4ff', letterSpacing: '0.06em' }}>PARKOSPACE</span>
+          </div>
+
+          {/* Legal Disclaimers & Info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left max-w-3xl w-full border-t border-b border-slate-900/60 py-8 text-[11px] text-slate-500 leading-relaxed font-sans">
+            <div>
+              <h4 className="font-semibold text-slate-300 uppercase tracking-wider mb-2 font-mono">1. Terms of Use & Liability</h4>
+              <p className="mb-3">
+                ParkoSpace is a public peer-to-peer discovery marketplace. We are strictly NOT responsible or liable for any damage, loss, theft of vehicles/property, personal injuries, or disputes arising between parking space owners and parkers.
+              </p>
+              <h4 className="font-semibold text-slate-300 uppercase tracking-wider mb-2 font-mono">2. Verification Mandate</h4>
+              <p>
+                Parkers are advised to contact the space owner directly and verify listing details, dimensions, accessibility, and final pricing before traveling to the parking spot.
+              </p>
+            </div>
+            <div>
+              <h4 className="font-semibold text-slate-300 uppercase tracking-wider mb-2 font-mono">3. Privacy Policy</h4>
+              <p className="mb-3">
+                We store only essential profile details (name, email, and phone number) to enable booking connections between users. We encrypt your passwords and do not sell your personal data to third parties.
+              </p>
+              <h4 className="font-semibold text-slate-300 uppercase tracking-wider mb-2 font-mono">4. Complaints & Support</h4>
+              <p>
+                For dispute resolution support, technical feedback, or bug reporting, please reach out to us at <a href="mailto:services@parkospace.xyz" className="text-teal-400 font-mono hover:underline hover:text-teal-400">services@parkospace.xyz</a>.
+              </p>
+            </div>
+          </div>
+
+          <p className="font-mono text-[10px] tracking-wider text-slate-600 mt-2">
+            PARKING MARKETPLACE · MIT LICENSE · © 2026 PARKOSPACE
+          </p>
         </div>
-        <p className="font-mono text-xs tracking-wider" style={{ color: 'rgba(255,255,255,0.15)', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
-          PARKING MARKETPLACE · MIT LICENSE · 2026
-        </p>
       </footer>
 
     </div>

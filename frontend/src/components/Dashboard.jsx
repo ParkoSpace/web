@@ -20,10 +20,69 @@ const loadGoogleMapsClientSide = async () => {
   return await loader.load();
 };
 
-export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackToHome }) {
+export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackToHome, onUpdateUser }) {
+  const formatPrice = (price) => {
+    if (price === null || price === undefined || price < 0) return 'N/A';
+    return `₹${price}`;
+  };
+
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Dashboard active tab
+  const [activeTab, setActiveTab] = useState('listings'); // 'listings' | 'settings'
+
+  // Settings profile states
+  const [profileName, setProfileName] = useState(currentUser?.name || '');
+  const [profilePhone, setProfilePhone] = useState(currentUser?.phone || '');
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+
+  // Sync profile details if currentUser updates
+  useEffect(() => {
+    if (currentUser) {
+      setProfileName(currentUser.name);
+      setProfilePhone(currentUser.phone);
+    }
+  }, [currentUser]);
+
+  const handleProfileSubmit = async (e) => {
+    e.preventDefault();
+    if (!profileName.trim() || !profilePhone.trim()) {
+      setProfileError('Name and Phone fields are required.');
+      return;
+    }
+    if (profilePhone.length < 10) {
+      setProfileError('Phone number must be at least 10 digits.');
+      return;
+    }
+    setProfileLoading(true);
+    setProfileError('');
+    setProfileSuccess('');
+
+    try {
+      const response = await fetch('/api/auth/update-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: profileName, phone: profilePhone })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setProfileSuccess('Profile settings updated successfully.');
+        if (onUpdateUser) {
+          onUpdateUser(data.user);
+        }
+      } else {
+        setProfileError(data.error || 'Failed to update profile settings.');
+      }
+    } catch (err) {
+      setProfileError('Connection error. Please try again.');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
 
   // Form Modal State
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -363,126 +422,230 @@ export default function Dashboard({ currentUser, onLogout, onBackToMap, onBackTo
             <h1 className="text-2xl font-bold text-white">Welcome, {currentUser.name}</h1>
             <p className="text-xs text-slate-400 font-mono mt-1">Phone: {currentUser.phone} · Email: {currentUser.email}</p>
           </div>
+          {activeTab === 'listings' && (
+            <button
+              onClick={handleOpenCreate}
+              className="w-full sm:w-auto px-5 py-3 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-teal-900/20 hover:shadow-teal-900/30 transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> List New Spot
+            </button>
+          )}
+        </div>
+
+        {/* Dashboard Tabs Toggle */}
+        <div className="flex border-b border-slate-800 mb-8 gap-6">
           <button
-            onClick={handleOpenCreate}
-            className="w-full sm:w-auto px-5 py-3 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-teal-900/20 hover:shadow-teal-900/30 transition flex items-center justify-center gap-2 cursor-pointer"
+            onClick={() => setActiveTab('listings')}
+            className={`pb-3 text-xs md:text-sm font-bold uppercase tracking-wider font-mono transition border-b-2 ${
+              activeTab === 'listings' 
+                ? 'border-teal-500 text-teal-400' 
+                : 'border-transparent text-slate-500 hover:text-slate-300'
+            }`}
           >
-            <Plus className="w-4 h-4" /> List New Spot
+            My Listings
+          </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`pb-3 text-xs md:text-sm font-bold uppercase tracking-wider font-mono transition border-b-2 ${
+              activeTab === 'settings' 
+                ? 'border-teal-500 text-teal-400' 
+                : 'border-transparent text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            Profile Settings
           </button>
         </div>
 
-        {error && (
-          <div className="mb-6 px-4 py-3 bg-red-950/30 border border-red-500/30 text-red-400 text-xs rounded-xl flex items-center gap-2">
-            <span>✕</span>
-            <span>{error}</span>
-          </div>
+        {activeTab === 'listings' && (
+          <>
+            {error && (
+              <div className="mb-6 px-4 py-3 bg-red-950/30 border border-red-500/30 text-red-400 text-xs rounded-xl flex items-center gap-2">
+                <span>✕</span>
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Listings Grid */}
+            {loading && listings.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+                <Loader className="w-8 h-8 animate-spin text-teal-500 mb-4" />
+                <p className="text-xs font-mono">LOADING YOUR SPACES…</p>
+              </div>
+            ) : listings.length === 0 ? (
+              <div className="text-center py-20 border border-dashed border-slate-800 rounded-2xl bg-slate-950/20">
+                <div className="text-3xl mb-4">🅿️</div>
+                <h3 className="text-sm font-semibold text-slate-300 mb-1">No Active Listings</h3>
+                <p className="text-xs text-slate-500 max-w-xs mx-auto mb-6">Start monetization. List your unused driveway, garage, or parking bay today.</p>
+                <button
+                  onClick={handleOpenCreate}
+                  className="px-4 py-2 border border-teal-500/30 hover:border-teal-500 text-teal-400 hover:bg-teal-950/20 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  Get Started
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {listings.map((l) => (
+                  <div
+                    key={l.id}
+                    className="bg-slate-950/40 border border-slate-800/80 rounded-2xl overflow-hidden hover:border-slate-700 transition flex flex-col"
+                  >
+                    {/* Details */}
+                    <div className="p-5 flex-1">
+                      <div className="flex justify-between items-start gap-2 mb-3">
+                        <h3 className="text-sm font-bold text-white truncate flex-1">{l.title}</h3>
+                        <span className={`px-2 py-0.5 text-[8px] font-bold font-mono tracking-wider rounded uppercase ${
+                          l.is_sold 
+                            ? 'bg-rose-950/40 border border-rose-800/50 text-rose-400' 
+                            : 'bg-emerald-950/40 border border-emerald-800/50 text-emerald-400'
+                        }`}>
+                          {l.is_sold ? 'SOLD OUT' : 'AVAILABLE'}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-400 line-clamp-2 mb-4 leading-relaxed">{l.desc}</p>
+                      
+                      {l.area_landmark && (
+                        <div className="flex items-center gap-1.5 text-[10px] text-teal-400 font-mono mb-4">
+                          <MapPin className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" />
+                          <span className="truncate">{l.area_landmark}</span>
+                        </div>
+                      )}
+
+                      {/* Size info */}
+                      <div className="bg-slate-900 border border-slate-800/60 rounded-xl p-3.5 space-y-2 mb-4 text-[11px]">
+                        <div className="flex justify-between text-slate-500">
+                          <span>Size</span>
+                          <strong className="text-slate-300 font-mono">{l.length} × {l.breadth} m</strong>
+                        </div>
+                        <div className="h-px bg-slate-800/60" />
+                        <div className="flex justify-between text-slate-500">
+                          <span>Hourly Price</span>
+                          <strong className="text-teal-400 font-mono">{formatPrice(l.price_hourly)}</strong>
+                        </div>
+                        <div className="flex justify-between text-slate-500">
+                          <span>Daily Price</span>
+                          <strong className="text-emerald-400 font-mono">{formatPrice(l.price_daily)}</strong>
+                        </div>
+                      </div>
+
+                      {l.amenities && l.amenities.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {l.amenities.map(a => (
+                            <span key={a} className="text-[9px] font-mono bg-slate-900 border border-slate-800/80 px-2 py-0.5 rounded-lg text-slate-400">
+                              {a}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card footer actions */}
+                    <div className="px-5 py-3.5 bg-slate-950/60 border-t border-slate-800/80 flex justify-between items-center gap-2">
+                      <a
+                        href={l.gmap_link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] text-teal-400 hover:text-teal-350 font-mono font-bold flex items-center gap-1"
+                      >
+                        <Link className="w-3.5 h-3.5" /> Navigation URL
+                      </a>
+                      
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => handleOpenEdit(l)}
+                          className="p-2 border border-slate-800 hover:border-slate-700 bg-slate-900 text-slate-400 hover:text-white rounded-xl transition cursor-pointer"
+                          title="Edit spot details"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(l.id)}
+                          className="p-2 border border-red-950/30 hover:border-red-900/60 bg-slate-900 text-red-400 hover:text-red-300 rounded-xl transition cursor-pointer"
+                          title="Delete spot"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
-        {/* Listings Grid */}
-        {loading && listings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-500">
-            <Loader className="w-8 h-8 animate-spin text-teal-500 mb-4" />
-            <p className="text-xs font-mono">LOADING YOUR SPACES…</p>
-          </div>
-        ) : listings.length === 0 ? (
-          <div className="text-center py-20 border border-dashed border-slate-800 rounded-2xl bg-slate-950/20">
-            <div className="text-3xl mb-4">🅿️</div>
-            <h3 className="text-sm font-semibold text-slate-300 mb-1">No Active Listings</h3>
-            <p className="text-xs text-slate-500 max-w-xs mx-auto mb-6">Start monetization. List your unused driveway, garage, or parking bay today.</p>
-            <button
-              onClick={handleOpenCreate}
-              className="px-4 py-2 border border-teal-500/30 hover:border-teal-500 text-teal-400 hover:bg-teal-950/20 text-xs font-bold rounded-xl transition cursor-pointer"
-            >
-              Get Started
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {listings.map((l) => (
-              <div
-                key={l.id}
-                className="bg-slate-950/40 border border-slate-800/80 rounded-2xl overflow-hidden hover:border-slate-700 transition flex flex-col"
-              >
-                {/* Details */}
-                <div className="p-5 flex-1">
-                  <div className="flex justify-between items-start gap-2 mb-3">
-                    <h3 className="text-sm font-bold text-white truncate flex-1">{l.title}</h3>
-                    <span className={`px-2 py-0.5 text-[8px] font-bold font-mono tracking-wider rounded uppercase ${
-                      l.is_sold 
-                        ? 'bg-rose-950/40 border border-rose-800/50 text-rose-400' 
-                        : 'bg-emerald-950/40 border border-emerald-800/50 text-emerald-400'
-                    }`}>
-                      {l.is_sold ? 'SOLD OUT' : 'AVAILABLE'}
-                    </span>
-                  </div>
+        {activeTab === 'settings' && (
+          <div className="max-w-xl bg-slate-950/40 border border-slate-800/80 rounded-2xl p-6 shadow-xl">
+            <h2 className="text-base font-bold text-white mb-6 flex items-center gap-2">
+              ⚙️ Partner Profile Settings
+            </h2>
 
-                  <p className="text-xs text-slate-400 line-clamp-2 mb-4 leading-relaxed">{l.desc}</p>
-                  
-                  {l.area_landmark && (
-                    <div className="flex items-center gap-1.5 text-[10px] text-teal-400 font-mono mb-4">
-                      <MapPin className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" />
-                      <span className="truncate">{l.area_landmark}</span>
-                    </div>
-                  )}
-
-                  {/* Size info */}
-                  <div className="bg-slate-900 border border-slate-800/60 rounded-xl p-3.5 space-y-2 mb-4 text-[11px]">
-                    <div className="flex justify-between text-slate-500">
-                      <span>Size</span>
-                      <strong className="text-slate-300 font-mono">{l.length} × {l.breadth} m</strong>
-                    </div>
-                    <div className="h-px bg-slate-800/60" />
-                    <div className="flex justify-between text-slate-500">
-                      <span>Hourly Price</span>
-                      <strong className="text-teal-400 font-mono">₹{l.price_hourly}</strong>
-                    </div>
-                    <div className="flex justify-between text-slate-500">
-                      <span>Daily Price</span>
-                      <strong className="text-emerald-400 font-mono">₹{l.price_daily}</strong>
-                    </div>
-                  </div>
-
-                  {l.amenities && l.amenities.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {l.amenities.map(a => (
-                        <span key={a} className="text-[9px] font-mono bg-slate-900 border border-slate-800/80 px-2 py-0.5 rounded-lg text-slate-400">
-                          {a}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Card footer actions */}
-                <div className="px-5 py-3.5 bg-slate-950/60 border-t border-slate-800/80 flex justify-between items-center gap-2">
-                  <a
-                    href={l.gmap_link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[10px] text-teal-400 hover:text-teal-300 font-mono font-bold flex items-center gap-1"
-                  >
-                    <Link className="w-3 h-3" /> Navigation URL
-                  </a>
-                  
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => handleOpenEdit(l)}
-                      className="p-2 border border-slate-800 hover:border-slate-700 bg-slate-900 text-slate-400 hover:text-white rounded-xl transition cursor-pointer"
-                      title="Edit spot details"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(l.id)}
-                      className="p-2 border border-red-950/30 hover:border-red-900/60 bg-slate-900 text-red-400 hover:text-red-300 rounded-xl transition cursor-pointer"
-                      title="Delete spot"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
+            {profileError && (
+              <div className="mb-5 px-4 py-3 bg-red-950/30 border border-red-500/30 text-red-405 text-xs rounded-xl flex items-start gap-2">
+                <span className="mt-0.5">✕</span>
+                <span>{profileError}</span>
               </div>
-            ))}
+            )}
+
+            {profileSuccess && (
+              <div className="mb-5 px-4 py-3 bg-teal-950/30 border border-teal-500/30 text-teal-300 text-xs rounded-xl flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 text-teal-400 mt-0.5 flex-shrink-0" />
+                <span>{profileSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleProfileSubmit} className="space-y-5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-450 mb-2 uppercase tracking-wider">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 px-4 text-sm text-slate-100 placeholder-slate-650 outline-none focus:border-teal-500 transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-450 mb-2 uppercase tracking-wider">Contact Number (Phone)</label>
+                <input
+                  type="tel"
+                  required
+                  value={profilePhone}
+                  onChange={(e) => setProfilePhone(e.target.value.replace(/\D/g, ''))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 px-4 text-sm text-slate-100 placeholder-slate-650 outline-none focus:border-teal-500 transition"
+                />
+                <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                  * Note: Changing your phone number will update all your current driveway and parking listings automatically.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-450 mb-2 uppercase tracking-wider">Email Address (Read-only)</label>
+                <input
+                  type="email"
+                  readOnly
+                  disabled
+                  value={currentUser.email}
+                  className="w-full bg-slate-900 border border-slate-800/80 rounded-xl py-3 px-4 text-sm text-slate-500 outline-none cursor-not-allowed opacity-80"
+                />
+                <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                  Verified email addresses cannot be modified. Contact support if you need to transfer ownership.
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={profileLoading}
+                  className="px-6 py-3 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-teal-900/20 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {profileLoading && <Loader className="w-4 h-4 animate-spin" />}
+                  {profileLoading ? 'Saving Settings...' : 'Save Profile Settings'}
+                </button>
+              </div>
+            </form>
           </div>
         )}
       </main>

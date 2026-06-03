@@ -153,6 +153,15 @@ async function initDb() {
       } catch (rlsErr) {
         console.log(` [WARNING] Could not enable RLS on startup: ${rlsErr.message}`);
       }
+
+      // Ensure ON UPDATE CASCADE is set on the foreign key constraint
+      try {
+        await db.query("ALTER TABLE listings DROP CONSTRAINT IF EXISTS listings_owner_phone_fkey;");
+        await db.query("ALTER TABLE listings ADD CONSTRAINT listings_owner_phone_fkey FOREIGN KEY (owner_phone) REFERENCES owners(phone) ON UPDATE CASCADE;");
+        console.log(" [SUCCESS] Altered listings foreign key constraint to ON UPDATE CASCADE.");
+      } catch (fkErr) {
+        console.log(` [WARNING] Could not alter listings foreign key constraint: ${fkErr.message}`);
+      }
     } catch (e) {
       console.log(` [ERROR] PG Init Error: ${e.message}`);
     }
@@ -356,6 +365,29 @@ async function dbUpdatePassword(phone, passwordHash) {
   await queryRun(sql, [passwordHash, phone]);
 }
 
+async function dbUpdateOwnerProfile(oldPhone, newPhone, newName) {
+  const isPg = usePostgres;
+
+  // 1. If phone changed, check if new phone is already registered by another account
+  if (oldPhone !== newPhone) {
+    const existing = await dbGetOwner(newPhone);
+    if (existing) {
+      throw new Error("Phone number is already registered by another account.");
+    }
+  }
+
+  if (isPg) {
+    // Under Postgres, listings.owner_phone has ON UPDATE CASCADE, so updating owners table
+    // will automatically update listings.owner_phone.
+    const sql = "UPDATE owners SET phone = $1, name = $2 WHERE phone = $3";
+    await queryRun(sql, [newPhone, newName, oldPhone]);
+  } else {
+    // For SQLite, we perform updates manually on both tables since FK is not enforced by default
+    await queryRun("UPDATE listings SET owner_phone = ? WHERE owner_phone = ?", [newPhone, oldPhone]);
+    await queryRun("UPDATE owners SET phone = ?, name = ? WHERE phone = ?", [newPhone, newName, oldPhone]);
+  }
+}
+
 module.exports = {
   initDb,
   dbGetListings,
@@ -366,5 +398,6 @@ module.exports = {
   dbGetOwnerByEmail,
   dbSaveOwner,
   dbUpdatePassword,
+  dbUpdateOwnerProfile,
   getIsPostgres: () => usePostgres
 };

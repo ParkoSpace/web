@@ -14,6 +14,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
   const [showPassword, setShowPassword] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Status
   const [loading, setLoading] = useState(false);
@@ -29,6 +30,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
     setPassword('');
     setOtpCode('');
     setNewPassword('');
+    setTermsAccepted(false);
     setError('');
     setMessage('');
     setStep(1);
@@ -88,6 +90,10 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
     }
     if (password.length < 6) {
       setError('Password must be at least 6 characters.');
+      return;
+    }
+    if (!termsAccepted) {
+      setError('You must agree to the Terms & Conditions to proceed.');
       return;
     }
     setLoading(true);
@@ -408,6 +414,38 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
                             {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                           </button>
                         </div>
+                      </div>
+
+                      {/* Terms & Conditions scroll area */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-medium text-slate-300">Terms & Conditions & Privacy Policy</label>
+                        <div className="w-full h-24 overflow-y-auto bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-[10px] text-slate-400 font-sans leading-relaxed scrollbar-thin scrollbar-thumb-slate-800">
+                          <p className="font-bold text-slate-200 mb-1">PARKOSPACE USER AGREEMENT</p>
+                          <p className="mb-2">Please read these Terms and Conditions carefully before registering. By checking the box below, you agree to comply with and be bound by the following terms:</p>
+                          <p className="font-bold text-slate-300 mb-0.5">1. Exclusion of Liability</p>
+                          <p className="mb-2">ParkoSpace acts solely as a listing and discovery platform. We are NOT responsible or liable for any disputes, damage, loss of property, theft, personal injury, or issues of any kind arising between parking space owners and parkers.</p>
+                          <p className="font-bold text-slate-300 mb-0.5">2. Verification Disclaimer</p>
+                          <p className="mb-2">Parkers are strictly advised and required to verify details (such as spot availability, dimensions, security, access hours, and final pricing) directly with the owners before traveling to the parking location.</p>
+                          <p className="font-bold text-slate-300 mb-0.5">3. Complaints & Support</p>
+                          <p className="mb-2">For any complaints, dispute logging, feedback, or technical bug reports, please email us directly at <span className="text-teal-400 font-semibold font-mono">services@parkospace.xyz</span>. We will assist in resolving issues where possible, without accepting liability.</p>
+                          <p className="font-bold text-slate-300 mb-0.5">4. Privacy Policy</p>
+                          <p className="">We collect and store your name, email, phone number, and listing details solely to facilitate the booking connection. Your credentials are encrypted and will never be shared with unauthorized third parties.</p>
+                        </div>
+                      </div>
+
+                      {/* Acceptance Checkbox */}
+                      <div className="flex items-start gap-2.5 mt-2">
+                        <input
+                          id="terms-checkbox"
+                          type="checkbox"
+                          required
+                          checked={termsAccepted}
+                          onChange={(e) => setTermsAccepted(e.target.checked)}
+                          className="mt-0.5 rounded border-slate-800 bg-slate-950 text-teal-600 focus:ring-teal-500/30 cursor-pointer h-4 w-4"
+                        />
+                        <label htmlFor="terms-checkbox" className="text-[11px] text-slate-400 leading-normal cursor-pointer select-none">
+                          I agree to the Terms & Conditions and Privacy Policy (including services@parkospace.xyz support contact).
+                        </label>
                       </div>
 
                       <button

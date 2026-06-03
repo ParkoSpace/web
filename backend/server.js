@@ -38,8 +38,18 @@ app.use(session({
 }));
 
 // Initialize database tables & migrations
-db.initDb().then(() => {
+db.initDb().then(async () => {
   console.log(" [INFO] Database initialization complete.");
+  try {
+    const listings = await db.dbGetListings();
+    if (!listings || listings.length === 0) {
+      console.log(" [INFO] No listings found. Seeding public parking spots automatically...");
+      const seeder = require('./seed_public_parkings');
+      await seeder.seed();
+    }
+  } catch (seedErr) {
+    console.warn(" [WARN] Auto-seeding check failed:", seedErr.message);
+  }
 }).catch((err) => {
   console.error(" [ERROR] Database initialization failed:", err);
 });
@@ -485,7 +495,7 @@ app.get('/api/listings', async (req, res) => {
   try {
     const lat = parseFloat(req.query.lat || DEFAULT_LAT);
     const lng = parseFloat(req.query.lng || DEFAULT_LNG);
-    const radius = parseFloat(req.query.radius || 5.0);
+    const radius = parseFloat(req.query.radius || 2.0);
     const ownerPhone = req.query.owner_phone;
 
     const allListings = await db.dbGetListings(ownerPhone);
@@ -867,6 +877,38 @@ app.get('/api/auth/me', (req, res) => {
     return res.json({ success: true, user: req.session.user });
   }
   return res.json({ success: false, user: null });
+});
+
+// Update Profile Settings (Name & Phone)
+app.post('/api/auth/update-profile', async (req, res) => {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({ success: false, error: "Unauthorized. Please log in." });
+  }
+
+  const oldPhone = req.session.user.phone;
+  const newName = (req.body.name || '').trim();
+  const newPhone = (req.body.phone || '').trim();
+
+  if (!newName || !newPhone) {
+    return res.status(400).json({ success: false, error: "Name and Phone fields cannot be empty." });
+  }
+
+  if (newPhone.length < 10) {
+    return res.status(400).json({ success: false, error: "Phone number must be at least 10 digits." });
+  }
+
+  try {
+    await db.dbUpdateOwnerProfile(oldPhone, newPhone, newName);
+    
+    // Cascade update in active session
+    req.session.user.name = newName;
+    req.session.user.phone = newPhone;
+    
+    return res.json({ success: true, user: req.session.user });
+  } catch (err) {
+    console.error(`[ERROR] Profile update failed: ${err.message}`);
+    return res.status(400).json({ success: false, error: err.message });
+  }
 });
 
 // Logout
