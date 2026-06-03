@@ -249,7 +249,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
         </div>
 
         {/* Form area */}
-        <div className="p-6">
+        <div className="p-6 max-h-[calc(100vh-130px)] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
           {/* Owners-only Warning Notice */}
           <div className="mb-5 p-3.5 bg-teal-950/30 border border-teal-500/20 rounded-xl text-[11px] text-slate-350 leading-relaxed flex gap-2 shadow-inner">
             <span className="text-teal-400 font-bold flex-shrink-0">Notice:</span>
