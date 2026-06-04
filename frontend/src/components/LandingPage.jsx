@@ -97,10 +97,10 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
 
         {/* Headline */}
         <h1 className="font-display tracking-wide text-white mb-1" style={{ fontSize: 'clamp(2.4rem, 8vw, 6rem)', lineHeight: '0.95', letterSpacing: '0.02em' }}>
-          RENT PARKING
+          RENT PARKING SPACES
         </h1>
         <h2 className="font-display tracking-wide mb-6" style={{ fontSize: 'clamp(2.4rem, 8vw, 6rem)', lineHeight: '0.95', letterSpacing: '0.02em', background: 'linear-gradient(135deg, #00d4ff 0%, #9b5de5 45%, #f72585 85%, #00d4ff 100%)', backgroundSize: '200% 200%', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', animation: 'gradient-shift 8s ease infinite' }}>
-          DIRECT FROM OWNERS
+          DIRECTLY FROM OWNERS
         </h2>
 
         {/* Subtitle */}

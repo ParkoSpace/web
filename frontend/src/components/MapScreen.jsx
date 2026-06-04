@@ -116,6 +116,15 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
             map.panTo(newCoords);
             map.setZoom(15);
 
+            // Dynamic Local SEO title and description updates
+            const address = place.formatted_address || place.name || 'your location';
+            document.title = `Parking Spaces Near ${address} | ParkoSpace`;
+            const metaDescription = `Find cheap and verified nearby parking spaces near ${address} directly from local property owners. View dimensions, rates, and call hosts on ParkoSpace.`;
+            const metaDescEl = document.querySelector('meta[name="description"]');
+            if (metaDescEl) {
+              metaDescEl.setAttribute('content', metaDescription);
+            }
+
             // Add/Move search marker
             if (searchMarkerRef.current) searchMarkerRef.current.setMap(null);
             searchMarkerRef.current = new google.maps.Marker({
@@ -185,14 +194,57 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
       const color = isAvailable ? '#10b981' : '#ef4444'; // green : red
 
       const pin = document.createElement('div');
-      pin.style.cssText = `
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        background: ${color};
-        border: 2.5px solid #ffffff;
-        box-shadow: 0 0 12px ${color}88, 0 2px 8px rgba(0,0,0,0.5);
-        cursor: pointer;
+      pin.style.cursor = 'pointer';
+      pin.style.position = 'relative';
+      pin.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
+          <!-- P Badge -->
+          <div style="
+            background-color: ${color};
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 800;
+            font-family: 'Space Grotesk', sans-serif;
+            width: 17px;
+            height: 17px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1.5px solid #ffffff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            margin-bottom: -3px;
+            z-index: 2;
+            position: relative;
+          ">
+            P
+          </div>
+          
+          <!-- Teardrop Pin -->
+          <div style="position: relative; z-index: 1;">
+            <svg viewBox="0 0 24 24" style="width: 28px; height: 28px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.45)); display: block;">
+              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="${color}" stroke="#ffffff" stroke-width="1.8" stroke-linejoin="round"/>
+            </svg>
+          </div>
+
+          <!-- Pulsing Glow (Only for Available Spots) -->
+          ${isAvailable ? `
+            <div style="
+              position: absolute;
+              bottom: 0;
+              left: 50%;
+              transform: translate(-50%, 50%);
+              width: 24px;
+              height: 24px;
+              border-radius: 50%;
+              background: rgba(16, 185, 129, 0.4);
+              box-shadow: 0 0 10px 4px rgba(16, 185, 129, 0.6);
+              animation: marker-glow 1.8s infinite ease-out;
+              z-index: 0;
+              pointer-events: none;
+            "></div>
+          ` : ''}
+        </div>
       `;
 
       let marker;
@@ -213,11 +265,24 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
 
           marker.addEventListener('gmp-click', onPinClick);
         } catch (e) {
-          // Fallback to basic Marker
+          // Fallback to basic Marker with custom SVG icon data URL
           marker = new window.google.maps.Marker({
             position: { lat: l.lat, lng: l.lng },
             map: map,
-            title: l.title
+            title: l.title,
+            icon: {
+              url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="24" height="36">
+                  <circle cx="12" cy="9" r="8" fill="${color}" stroke="#ffffff" stroke-width="1.5" />
+                  <text x="12" y="12" font-family="system-ui, sans-serif" font-size="10" font-weight="900" fill="#ffffff" text-anchor="middle">P</text>
+                  <g transform="translate(0, 14)">
+                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="${color}" stroke="#ffffff" stroke-width="1.8" stroke-linejoin="round"/>
+                  </g>
+                </svg>
+              `)}`,
+              size: new window.google.maps.Size(24, 36),
+              anchor: new window.google.maps.Point(12, 36)
+            }
           });
           marker.addListener('click', () => {
             iw.setContent(buildInfoWindowHtml(l));
@@ -225,11 +290,24 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
           });
         }
       } else {
-        // Fallback basic Marker
+        // Fallback basic Marker with custom SVG icon data URL
         marker = new window.google.maps.Marker({
           position: { lat: l.lat, lng: l.lng },
           map: map,
-          title: l.title
+          title: l.title,
+          icon: {
+            url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="24" height="36">
+                <circle cx="12" cy="9" r="8" fill="${color}" stroke="#ffffff" stroke-width="1.5" />
+                <text x="12" y="12" font-family="system-ui, sans-serif" font-size="10" font-weight="900" fill="#ffffff" text-anchor="middle">P</text>
+                <g transform="translate(0, 14)">
+                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="${color}" stroke="#ffffff" stroke-width="1.8" stroke-linejoin="round"/>
+                </g>
+              </svg>
+            `)}`,
+            size: new window.google.maps.Size(24, 36),
+            anchor: new window.google.maps.Point(12, 36)
+          }
         });
         marker.addListener('click', () => {
           iw.setContent(buildInfoWindowHtml(l));
@@ -521,6 +599,16 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
           mapInstanceRef.current.panTo(newCoords);
           mapInstanceRef.current.setZoom(15);
         }
+
+        // Dynamic Local SEO title and description updates
+        const address = data.address || query;
+        document.title = `Parking Spaces Near ${address} | ParkoSpace`;
+        const metaDescription = `Find cheap and verified nearby parking spaces near ${address} directly from local property owners. View dimensions, rates, and call hosts on ParkoSpace.`;
+        const metaDescEl = document.querySelector('meta[name="description"]');
+        if (metaDescEl) {
+          metaDescEl.setAttribute('content', metaDescription);
+        }
+
         fetchListings(data.lat, data.lng, radius);
       } else {
         alert('Location not found.');

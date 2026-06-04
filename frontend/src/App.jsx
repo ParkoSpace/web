@@ -10,6 +10,37 @@ export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState('login');
 
+  // Dynamic SEO Page Title & Meta Description Modifier
+  useEffect(() => {
+    let title = "ParkoSpace | Rent Parking Spaces Directly From Owners";
+    let metaDescription = "Rent private parking spaces directly from local property owners. Find driveways, garages, and plots near you instantly with zero booking fees.";
+    
+    switch (view) {
+      case 'landing':
+        title = "ParkoSpace | Rent Parking Spaces Directly From Owners";
+        metaDescription = "Rent private parking spaces directly from local property owners. Find driveways, garages, and plots near you instantly with zero booking fees.";
+        break;
+      case 'map':
+        title = "Find Parking Spaces Near Me | ParkoSpace Live Map";
+        metaDescription = "Search the live map for cheap car parking spaces near you. Find verified driveways and contact local owners directly with zero middleman commissions.";
+        break;
+      case 'dashboard':
+        title = "Owner Dashboard | Manage Parking Spaces | ParkoSpace";
+        metaDescription = "Add a new parking space, update rental rates, choose amenities, verify coordinates, and manage bookings directly on ParkoSpace.";
+        break;
+      default:
+        break;
+    }
+    
+    document.title = title;
+    
+    // Update description meta tag dynamically
+    const metaDescEl = document.querySelector('meta[name="description"]');
+    if (metaDescEl) {
+      metaDescEl.setAttribute('content', metaDescription);
+    }
+  }, [view]);
+
   // Check session status on mount
   useEffect(() => {
     const checkAuthSession = async () => {

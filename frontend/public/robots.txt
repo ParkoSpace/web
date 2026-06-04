@@ -1,0 +1,5 @@
+# Crawl permissions for ParkoSpace
+User-agent: *
+Allow: /
+
+Sitemap: https://www.parkospace.xyz/sitemap.xml

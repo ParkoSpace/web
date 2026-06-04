@@ -192,3 +192,21 @@ button:hover {
     opacity: 0;
   }
 }
+
+/* ═══════════════════════════════════════════
+ *  MAP PIN GLOW KEYFRAMES (AVAILABLE SPOTS)
+ *  ═══════════════════════════════════════════ */
+@keyframes marker-glow {
+  0% {
+    transform: translate(-50%, 50%) scale(0.5);
+    opacity: 1;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, 50%) scale(1.6);
+    opacity: 0;
+  }
+}
+
