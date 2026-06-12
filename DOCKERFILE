@@ -1,0 +1,14 @@
+FROM node:20
+
+WORKDIR /
+
+COPY . .
+
+RUN npm install
+RUN npm install --prefix backend
+RUN npm install --prefix frontend
+RUN npm run build --prefix frontend
+
+EXPOSE 8080
+
+CMD ["npm","start"]
