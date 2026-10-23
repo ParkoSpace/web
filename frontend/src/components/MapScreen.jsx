@@ -2,7 +2,160 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Loader as MapsLoader } from '@googlemaps/js-api-loader';
 import { Search, Crosshair, MapPin, Sliders, Menu, X, Navigation, Phone, ChevronUp, ChevronDown, Loader as LucideLoader } from 'lucide-react';
 
-export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
+export default function MapScreen({ currentUser, onBackToHome, onOpenAuth, onLogout, onUpdateUser, onBuyCredits }) {
+  const [guestCredits, setGuestCredits] = useState(() => {
+    const saved = localStorage.getItem('parkospace_guest_credits');
+    return saved !== null ? parseInt(saved) : 20;
+  });
+  const [outOfCreditsModalOpen, setOutOfCreditsModalOpen] = useState(false);
+
+  const isPreviousUser = currentUser && (currentUser.joined_at < 1780627200 || !currentUser.joined_at);
+
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [profileName, setProfileName] = useState(currentUser?.name || '');
+  const [profilePhone, setProfilePhone] = useState(currentUser?.phone || '');
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+
+  useEffect(() => {
+    if (currentUser) {
+      setProfileName(currentUser.name);
+      setProfilePhone(currentUser.phone);
+    }
+  }, [currentUser]);
+
+  const handleProfileSubmit = async (e) => {
+    e.preventDefault();
+    if (!profileName.trim() || !profilePhone.trim()) {
+      setProfileError('Name and Phone fields are required.');
+      return;
+    }
+    if (profilePhone.length < 10) {
+      setProfileError('Phone number must be at least 10 digits.');
+      return;
+    }
+    setProfileLoading(true);
+    setProfileError('');
+    setProfileSuccess('');
+
+    try {
+      const response = await fetch('/api/auth/update-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: profileName, phone: profilePhone })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setProfileSuccess('Profile settings updated successfully.');
+        if (onUpdateUser) {
+          onUpdateUser(data.user);
+        }
+      } else {
+        setProfileError(data.error || 'Failed to update profile settings.');
+      }
+    } catch (err) {
+      setProfileError('Connection error. Please try again.');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const handlePortAccount = async () => {
+    const costMsg = isPreviousUser ? "free for your account" : "costs 20 credits";
+    const confirmPort = window.confirm(`Are you sure you want to switch your account type to a Space Owner?\n\nThis action ${costMsg}. Switching role enables you to rent out and manage spaces.`);
+    if (!confirmPort) return;
+
+    if (!isPreviousUser && (currentUser?.credits || 0) < 20) {
+      alert(`Insufficient credits! Porting to Space Owner costs 20 credits.\n\nYour Current Balance: ${currentUser?.credits || 0} credits.\n\nPlease top up your credits to proceed.`);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/auth/port', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        alert(data.message || "Account type switched successfully!");
+        setProfileModalOpen(false);
+        if (onUpdateUser) {
+          onUpdateUser(data.user);
+        }
+        if (onOpenAuth) onOpenAuth();
+      } else {
+        alert(data.error || "Failed to switch account type.");
+      }
+    } catch (err) {
+      alert("Connection error. Please try again.");
+    }
+  };
+
+  const handleActionDeductCredits = async (actionType, targetValue) => {
+    const currentBal = currentUser ? currentUser.credits : guestCredits;
+    if (!isPreviousUser && currentBal < 5) {
+      setOutOfCreditsModalOpen(true);
+      return;
+    }
+
+    if (currentUser) {
+      if (!isPreviousUser) {
+        try {
+          const res = await fetch('/api/credits/deduct', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: 5 })
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            if (onUpdateUser) {
+              onUpdateUser({
+                ...currentUser,
+                credits: data.credits
+              });
+            }
+          } else {
+            alert(data.error || "Failed to deduct credits");
+            return;
+          }
+        } catch (e) {
+          console.error(e);
+          alert("Failed to connect to server.");
+          return;
+        }
+      }
+    } else {
+      const newBal = currentBal - 5;
+      setGuestCredits(newBal);
+      localStorage.setItem('parkospace_guest_credits', newBal.toString());
+    }
+
+    // Perform action
+    if (actionType === 'navigate') {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${targetValue.lat},${targetValue.lng}`, '_blank');
+    } else if (actionType === 'call') {
+      window.location.href = `tel:${targetValue}`;
+    }
+  };
+
+  useEffect(() => {
+    window.handleNavigateClick = (lat, lng) => {
+      handleActionDeductCredits('navigate', { lat, lng });
+    };
+    window.handleCallClick = (phone) => {
+      handleActionDeductCredits('call', phone);
+    };
+    return () => {
+      delete window.handleNavigateClick;
+      delete window.handleCallClick;
+    };
+  }, [currentUser, guestCredits]);
+
+  const handleHeaderLogout = () => {
+    if (onLogout) onLogout();
+  };
+
   const formatPrice = (price) => {
     if (price === null || price === undefined || price < 0) return 'N/A';
     return `₹${price}`;
@@ -502,9 +655,9 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
 
         ${!l.is_sold ? `
           <div style="display: flex; gap: 8px;">
-            <a href="https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}" target="_blank" style="flex: 1; background: #00d4ff; color: #06060f; padding: 8px 0; border-radius: 8px; font-size: 11px; font-weight: 700; text-align: center; text-decoration: none; border: 1px solid #00d4ff;">Navigate</a>
+            <button onclick="window.handleNavigateClick(${l.lat}, ${l.lng})" style="flex: 1; background: #00d4ff; color: #06060f; padding: 8px 0; border-radius: 8px; font-size: 11px; font-weight: 700; text-align: center; border: 1px solid #00d4ff; cursor: pointer; outline: none;">Navigate</button>
             ${l.owner_phone && l.owner_phone !== 'N/A' ? `
-              <a href="tel:${l.owner_phone}" style="flex: 1; border: 1px solid #00d4ff; color: #00d4ff; padding: 8px 0; border-radius: 8px; font-size: 11px; font-weight: 700; text-align: center; text-decoration: none;">Call Owner</a>
+              <button onclick="window.handleCallClick('${l.owner_phone}')" style="flex: 1; border: 1px solid #00d4ff; background: transparent; color: #00d4ff; padding: 8px 0; border-radius: 8px; font-size: 11px; font-weight: 700; text-align: center; cursor: pointer; outline: none;">Call Owner</button>
             ` : `
               <span style="flex: 1; border: 1px solid #374151; color: #9ca3af; padding: 8px 0; border-radius: 8px; font-size: 11px; font-weight: 700; text-align: center; cursor: not-allowed; opacity: 0.6;">Call: N/A</span>
             `}
@@ -623,11 +776,8 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
       
       {/* Header */}
       <div className="px-4 py-3 bg-slate-950/80 backdrop-blur-lg border-b border-slate-800 flex items-center justify-between gap-3 flex-shrink-0 z-30">
-        <div onClick={onBackToHome} className="flex items-center gap-2 cursor-pointer select-none hover:opacity-90 transition">
+        <div onClick={onBackToHome} className="flex items-center gap-2 cursor-pointer select-none hover:opacity-90 transition flex-shrink-0">
           <img src="/logo.png" className="h-7 w-7 object-contain" alt="ParkoSpace" />
-          <span className="font-display text-teal-400 tracking-wider text-lg uppercase">
-            PARKO<span className="text-slate-400">SPACE</span>
-          </span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -640,28 +790,61 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
             <Crosshair className="w-4 h-4" />
           </button>
 
-          {/* Desktop Radius Slider */}
-          <div className="hidden sm:flex items-center gap-3 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl flex-shrink-0">
-            <span className="text-[10px] font-mono font-bold tracking-wider text-slate-500 uppercase">Radius</span>
-            <input
-              type="range"
-              min="1"
-              max="20"
-              value={radius}
-              onChange={handleRadiusChange}
-              className="w-20 md:w-28 accent-teal-500 cursor-pointer h-1"
-            />
-            <span className="text-xs font-mono font-bold text-teal-400 w-10 text-right">{radius}km</span>
+          {/* Credits Display */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/80 border border-slate-850 rounded-xl">
+            <span className="text-[14px]">🪙</span>
+            <span className="text-xs font-mono font-bold text-teal-400">
+              {isPreviousUser ? 'UNLIMITED' : (currentUser ? currentUser.credits : guestCredits)} <span className="text-[10px] text-slate-550 uppercase font-sans font-medium">{currentUser ? 'credits' : 'guest'}</span>
+            </span>
+            {currentUser && !isPreviousUser && (
+              <button
+                type="button"
+                onClick={onBuyCredits}
+                className="ml-1.5 px-2 py-0.5 bg-teal-600 hover:bg-teal-500 text-white font-sans text-[9px] font-bold rounded-lg transition cursor-pointer animate-pulse"
+              >
+                + Buy
+              </button>
+            )}
           </div>
 
-          <div>
+          {/* User Profile / Dashboard / Login actions */}
+          {currentUser ? (
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="hidden lg:inline text-xs font-semibold text-slate-400 truncate max-w-24">
+                {currentUser.name}
+              </span>
+              {currentUser.role === 'owner' ? (
+                <button
+                  onClick={onOpenAuth}
+                  className="px-2.5 sm:px-4 py-1.5 sm:py-2 bg-teal-600 hover:bg-teal-500 text-white text-[10px] sm:text-xs font-bold rounded-xl transition cursor-pointer whitespace-nowrap"
+                >
+                  Dashboard
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <button
+                    onClick={() => setProfileModalOpen(true)}
+                    className="px-2 sm:px-3 py-1.5 sm:py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-350 hover:text-white text-[10px] sm:text-xs font-bold rounded-xl transition cursor-pointer whitespace-nowrap"
+                  >
+                    Profile
+                  </button>
+                  <button
+                    onClick={handleHeaderLogout}
+                    className="px-2 sm:px-3 py-1.5 sm:py-2 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white text-[10px] sm:text-xs font-bold rounded-xl transition cursor-pointer whitespace-nowrap"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
             <button
               onClick={onOpenAuth}
-              className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+              className="px-2.5 sm:px-4 py-1.5 sm:py-2 bg-teal-600 hover:bg-teal-500 text-white text-[10px] sm:text-xs font-bold rounded-xl transition cursor-pointer whitespace-nowrap"
             >
-              {currentUser ? 'Dashboard' : 'Owner Login'}
+              Sign In
             </button>
-          </div>
+          )}
         </div>
       </div>
 
@@ -748,23 +931,27 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
                   </div>
                   {!l.is_sold ? (
                     <div className="mt-3 pt-3 border-t border-slate-800/60 flex gap-2">
-                      <a
-                        href={`https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 py-1.5 bg-teal-400 hover:bg-teal-300 text-slate-950 font-bold text-[10px] rounded-lg text-center transition flex items-center justify-center gap-1"
-                        onClick={(e) => e.stopPropagation()}
+                      <button
+                        type="button"
+                        className="flex-1 py-1.5 bg-teal-400 hover:bg-teal-300 text-slate-950 font-bold text-[10px] rounded-lg text-center transition flex items-center justify-center gap-1 cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleActionDeductCredits('navigate', { lat: l.lat, lng: l.lng });
+                        }}
                       >
                         <Navigation className="w-3 h-3" /> Navigate
-                      </a>
+                      </button>
                       {l.owner_phone && l.owner_phone !== 'N/A' ? (
-                        <a
-                          href={`tel:${l.owner_phone}`}
-                          className="flex-1 py-1.5 border border-teal-500/30 hover:border-teal-400 text-teal-400 hover:bg-teal-950/20 font-bold text-[10px] rounded-lg text-center transition flex items-center justify-center gap-1"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          className="flex-1 py-1.5 border border-teal-500/30 hover:border-teal-400 text-teal-400 hover:bg-teal-950/20 font-bold text-[10px] rounded-lg text-center transition flex items-center justify-center gap-1 cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleActionDeductCredits('call', l.owner_phone);
+                          }}
                         >
                           <Phone className="w-3 h-3" /> Call Owner
-                        </a>
+                        </button>
                       ) : (
                         <span
                           className="flex-1 py-1.5 border border-slate-800 text-slate-500 bg-slate-950/30 font-bold text-[10px] rounded-lg text-center cursor-not-allowed flex items-center justify-center gap-1 opacity-60"
@@ -891,23 +1078,27 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
                   </div>
                   {!l.is_sold ? (
                     <div className="mt-3 pt-3 border-t border-slate-800/60 flex gap-2">
-                      <a
-                        href={l.lat && l.lng ? `https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}` : l.gmap_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 py-1.5 bg-teal-400 hover:bg-teal-300 text-slate-950 font-bold text-[10px] rounded-lg text-center transition flex items-center justify-center gap-1"
-                        onClick={(e) => e.stopPropagation()}
+                      <button
+                        type="button"
+                        className="flex-1 py-1.5 bg-teal-400 hover:bg-teal-300 text-slate-950 font-bold text-[10px] rounded-lg text-center transition flex items-center justify-center gap-1 cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleActionDeductCredits('navigate', { lat: l.lat, lng: l.lng });
+                        }}
                       >
                         <Navigation className="w-3 h-3" /> Navigate
-                      </a>
+                      </button>
                       {l.owner_phone && l.owner_phone !== 'N/A' ? (
-                        <a
-                          href={`tel:${l.owner_phone}`}
-                          className="flex-1 py-1.5 border border-teal-500/30 hover:border-teal-400 text-teal-400 hover:bg-teal-950/20 font-bold text-[10px] rounded-lg text-center transition flex items-center justify-center gap-1"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          className="flex-1 py-1.5 border border-teal-500/30 hover:border-teal-400 text-teal-400 hover:bg-teal-950/20 font-bold text-[10px] rounded-lg text-center transition flex items-center justify-center gap-1 cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleActionDeductCredits('call', l.owner_phone);
+                          }}
                         >
                           <Phone className="w-3 h-3" /> Call Owner
-                        </a>
+                        </button>
                       ) : (
                         <span
                           className="flex-1 py-1.5 border border-slate-800 text-slate-500 bg-slate-950/30 font-bold text-[10px] rounded-lg text-center cursor-not-allowed flex items-center justify-center gap-1 opacity-60"
@@ -992,6 +1183,160 @@ export default function MapScreen({ currentUser, onBackToHome, onOpenAuth }) {
           </div>
         </div>
       )}
+
+      {/* Out of Credits Modal */}
+      {outOfCreditsModalOpen && (
+        <div className="absolute inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl animate-in fade-in zoom-in duration-300">
+            <div className="w-16 h-16 bg-red-950/50 border border-red-500/30 rounded-full flex items-center justify-center mx-auto mb-4 text-red-400">
+              <span className="text-2xl font-bold">🪙</span>
+            </div>
+            <h3 className="text-base font-bold text-white mb-2">Out of Credits</h3>
+            <p className="text-xs text-slate-400 leading-relaxed mb-6">
+              You need at least <strong className="text-teal-400 font-semibold">5 credits</strong> to navigate to or call the owner of this space.<br />
+              Current Balance: <strong className="text-red-450 font-bold">{currentUser ? currentUser.credits : guestCredits} credits</strong>.
+            </p>
+            <div className="space-y-2.5">
+              {currentUser ? (
+                <button
+                  onClick={() => {
+                    setOutOfCreditsModalOpen(false);
+                    if (onBuyCredits) onBuyCredits();
+                  }}
+                  className="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer"
+                >
+                  Buy Credits
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setOutOfCreditsModalOpen(false);
+                    onOpenAuth();
+                  }}
+                  className="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer"
+                >
+                  Sign Up & Get +10 Credits
+                </button>
+              )}
+              <button
+                onClick={() => setOutOfCreditsModalOpen(false)}
+                className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Profile Settings Modal */}
+      {profileModalOpen && currentUser && (
+        <div className="absolute inset-0 z-55 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            
+            {/* Header */}
+            <div className="flex justify-between items-center px-6 py-4 border-b border-slate-800 bg-slate-900/50">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">👤</span>
+                <span className="font-bold text-white tracking-wide text-xs font-mono uppercase">Profile Settings</span>
+              </div>
+              <button 
+                onClick={() => {
+                  setProfileModalOpen(false);
+                  setProfileError('');
+                  setProfileSuccess('');
+                }} 
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 overflow-y-auto max-h-[calc(100vh-160px)] space-y-6">
+              {profileError && (
+                <div className="px-4 py-2.5 bg-red-950/20 border border-red-500/25 text-red-400 text-xs rounded-xl font-medium font-sans animate-in fade-in duration-155">
+                  {profileError}
+                </div>
+              )}
+              {profileSuccess && (
+                <div className="px-4 py-2.5 bg-teal-950/20 border border-teal-500/25 text-teal-400 text-xs rounded-xl font-medium font-sans animate-in fade-in duration-155">
+                  {profileSuccess}
+                </div>
+              )}
+
+              <form onSubmit={handleProfileSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-500">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-xs text-slate-100 placeholder-slate-650 outline-none focus:border-teal-500 transition"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-500">Contact Number</label>
+                  <input
+                    type="tel"
+                    required
+                    value={profilePhone}
+                    onChange={(e) => setProfilePhone(e.target.value.replace(/\D/g, ''))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-xs text-slate-100 placeholder-slate-650 outline-none focus:border-teal-500 transition"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-500">Email Address (Read-only)</label>
+                  <input
+                    type="email"
+                    readOnly
+                    disabled
+                    value={currentUser.email}
+                    className="w-full bg-slate-900 border border-slate-850 rounded-xl py-2.5 px-4 text-xs text-slate-500 outline-none cursor-not-allowed opacity-80"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={profileLoading}
+                  className="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {profileLoading && <LucideLoader className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{profileLoading ? 'Saving...' : 'Save Profile Settings'}</span>
+                </button>
+              </form>
+
+              {/* Account Porting Card */}
+              <div className="border-t border-slate-800/80 pt-5 space-y-3">
+                <h4 className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider">Account Porting</h4>
+                <div className="bg-slate-950 border border-slate-850 rounded-xl p-4 space-y-3">
+                  <p className="text-[10px] text-slate-450 leading-relaxed">
+                    Switching your account from Parking Seeker to Space Owner costs <strong className="text-teal-400">20 credits</strong>. This will enable you to add driveways and rent out spaces.
+                  </p>
+                  {!isPreviousUser && (
+                    <div className="flex justify-between items-center text-[10px] font-mono border-b border-slate-900 pb-2">
+                      <span className="text-slate-500">Porting Fee:</span>
+                      <span className="text-teal-450 font-bold">🪙 20 credits</span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handlePortAccount}
+                    className="w-full bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-350 hover:text-white py-2.5 rounded-xl text-xs font-bold transition cursor-pointer"
+                  >
+                    Port to Space Owner {isPreviousUser ? '(Free)' : '(Cost: 20)'}
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

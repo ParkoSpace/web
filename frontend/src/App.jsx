@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import LandingPage from './components/LandingPage';
 import MapScreen from './components/MapScreen';
 import Dashboard from './components/Dashboard';
+import CreditsPage from './components/CreditsPage';
 import AuthModal from './components/AuthModal';
 
 export default function App() {
-  const [view, setView] = useState('landing'); // 'landing' | 'map' | 'dashboard'
+  const [view, setView] = useState('landing'); // 'landing' | 'map' | 'dashboard' | 'credits'
+  const [creditsReferrer, setCreditsReferrer] = useState('landing');
+  const [authRedirectToCredits, setAuthRedirectToCredits] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState('login');
@@ -27,6 +30,10 @@ export default function App() {
       case 'dashboard':
         title = "Owner Dashboard | Manage Parking Spaces | ParkoSpace";
         metaDescription = "Add a new parking space, update rental rates, choose amenities, verify coordinates, and manage bookings directly on ParkoSpace.";
+        break;
+      case 'credits':
+        title = "Buy Credits | Recharge Balance | ParkoSpace";
+        metaDescription = "Top up your ParkoSpace credit balance securely using UPI or Credit Card. Choose a package or enter a custom amount to unlock parking features.";
         break;
       default:
         break;
@@ -85,9 +92,27 @@ export default function App() {
     setAuthModalOpen(true);
   };
 
+  const handleBuyCredits = (referrerView) => {
+    setCreditsReferrer(referrerView);
+    if (currentUser) {
+      setView('credits');
+    } else {
+      setAuthRedirectToCredits(true);
+      setAuthInitialTab('login');
+      setAuthModalOpen(true);
+    }
+  };
+
   const handleAuthSuccess = (user) => {
     setCurrentUser(user);
-    setView('dashboard'); // go directly to dashboard upon successful login/registration
+    if (authRedirectToCredits) {
+      setAuthRedirectToCredits(false);
+      setView('credits');
+    } else if (user && user.role === 'owner') {
+      setView('dashboard');
+    } else {
+      setView('map');
+    }
   };
 
   return (
@@ -98,6 +123,9 @@ export default function App() {
           currentUser={currentUser}
           onFindParking={() => setView('map')}
           onPartnerClick={handlePartnerClick}
+          onLoginClick={handleOpenAuthModal}
+          onBuyCredits={() => handleBuyCredits('landing')}
+          onLogout={handleLogout}
         />
       )}
 
@@ -105,7 +133,14 @@ export default function App() {
         <MapScreen
           currentUser={currentUser}
           onBackToHome={() => setView('landing')}
-          onOpenAuth={currentUser ? () => setView('dashboard') : handleOpenAuthModal}
+          onOpenAuth={currentUser ? () => {
+            if (currentUser.role === 'owner') {
+              setView('dashboard');
+            }
+          } : handleOpenAuthModal}
+          onLogout={handleLogout}
+          onUpdateUser={setCurrentUser}
+          onBuyCredits={() => handleBuyCredits('map')}
         />
       )}
 
@@ -116,21 +151,35 @@ export default function App() {
           onBackToMap={() => setView('map')}
           onBackToHome={() => setView('landing')}
           onUpdateUser={setCurrentUser}
+          onBuyCredits={() => handleBuyCredits('dashboard')}
+        />
+      )}
+
+      {view === 'credits' && currentUser && (
+        <CreditsPage
+          currentUser={currentUser}
+          onUpdateUser={setCurrentUser}
+          onBack={() => setView(creditsReferrer)}
         />
       )}
 
       {/* Global Auth Modal */}
       <AuthModal
         isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
+        onClose={() => {
+          setAuthModalOpen(false);
+          setAuthRedirectToCredits(false);
+        }}
         initialTab={authInitialTab}
         onSuccess={handleAuthSuccess}
         onBackToHome={() => {
           setAuthModalOpen(false);
+          setAuthRedirectToCredits(false);
           setView('landing');
         }}
         onFindParking={() => {
           setAuthModalOpen(false);
+          setAuthRedirectToCredits(false);
           setView('map');
         }}
       />

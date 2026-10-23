@@ -15,6 +15,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
   const [otpCode, setOtpCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [role, setRole] = useState('driver'); // 'driver' | 'owner'
 
   // Status
   const [loading, setLoading] = useState(false);
@@ -35,6 +36,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
     setMessage('');
     setStep(1);
     setIsForgot(false);
+    setRole('driver');
   };
 
   const handleTabChange = (tab) => {
@@ -117,7 +119,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
       const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, email, password })
+        body: JSON.stringify({ name, phone, email, password, role })
       });
       const data = await response.json();
       if (response.ok && data.success) {
@@ -147,7 +149,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
       const response = await fetch('/api/auth/register/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, email, password, code: otpCode })
+        body: JSON.stringify({ name, phone, email, password, code: otpCode, role })
       });
       const data = await response.json();
       if (response.ok && data.success) {
@@ -250,11 +252,11 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
 
         {/* Form area */}
         <div className="p-6 max-h-[calc(100vh-130px)] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
-          {/* Owners-only Warning Notice */}
-          <div className="mb-5 p-3.5 bg-teal-950/30 border border-teal-500/20 rounded-xl text-[11px] text-slate-355 leading-relaxed flex gap-2 shadow-inner">
-            <span className="text-teal-400 font-bold flex-shrink-0">Notice:</span>
+          {/* Credits System Warning Notice */}
+          <div className="mb-5 p-3.5 bg-teal-950/30 border border-teal-500/20 rounded-xl text-[11px] text-slate-300 leading-relaxed flex gap-2 shadow-inner">
+            <span className="text-teal-400 font-bold flex-shrink-0">Credits:</span>
             <span>
-              This login and registration is <strong className="text-teal-400 font-semibold">only for parking space owners</strong>. To search parking{' '}
+              Sign in to manage your balance. Guest users start with <strong className="text-teal-400 font-semibold">20 free credits</strong> (5 credits per view/navigate/call). Signing up grants a <strong className="text-teal-400 font-semibold">+10 credit bonus</strong> (30 credits total). Space owners require <strong className="text-amber-400 font-semibold">100 credits</strong> to list a driveway or garage. To search parking without logging in,{' '}
               <button 
                 type="button" 
                 onClick={() => { if (onFindParking) onFindParking(); else onClose(); }}
@@ -367,6 +369,35 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialTab = 'lo
                     </form>
                   ) : (
                     <form onSubmit={handleRegisterSubmit} className="space-y-4">
+                      {/* Role selection */}
+                      <div>
+                        <label className="block text-xs font-medium text-slate-350 mb-1.5">I want to:</label>
+                        <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800/85">
+                          <button
+                            type="button"
+                            onClick={() => setRole('driver')}
+                            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition ${
+                              role === 'driver' 
+                                ? 'bg-teal-650 text-white shadow font-bold' 
+                                : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            Find Parking (Seeker)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRole('owner')}
+                            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition ${
+                              role === 'owner' 
+                                ? 'bg-teal-650 text-white shadow font-bold' 
+                                : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            Rent My Space (Owner)
+                          </button>
+                        </div>
+                      </div>
+
                       <div>
                         <label className="block text-xs font-medium text-slate-300 mb-1.5">Full Name</label>
                         <div className="relative">

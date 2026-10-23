@@ -678,6 +678,22 @@ app.post('/api/utils/search-location', async (req, res) => {
 app.post('/api/create', async (req, res) => {
   try {
     const data = req.body;
+    if (!data.owner_phone) {
+      return res.status(400).json({ success: false, error: "Owner phone is required." });
+    }
+    // Retrieve owner to check credits
+    const owner = await db.dbGetOwner(data.owner_phone);
+    if (!owner) {
+      return res.status(404).json({ success: false, error: "Owner account not found." });
+    }
+    const isPreviousUser = owner.joined_at < 1780627200 || !owner.joined_at;
+    if (!isPreviousUser && (owner.credits || 0) < 100) {
+      return res.status(403).json({ 
+        success: false, 
+        error: `Insufficient credits. You need at least 100 credits to list a new space. Current balance: ${owner.credits || 0} credits.` 
+      });
+    }
+
     const newListing = {
       id: uuid.v4(),
       title: data.title,
@@ -699,8 +715,24 @@ app.post('/api/create', async (req, res) => {
       is_sold: !!data.is_sold,
       created_at: Date.now() / 1000
     };
+
+    if (isPreviousUser) {
+      await db.dbAddListing(newListing);
+      return res.json({ success: true, listing: newListing, credits: owner.credits || 0 });
+    }
+
+    // Deduct 100 credits
+    const newCredits = (owner.credits || 0) - 100;
+    await db.dbUpdateCredits(owner.phone, newCredits);
+
     await db.dbAddListing(newListing);
-    return res.json({ success: true, listing: newListing });
+
+    // Sync session user credits if it is the current logged in user
+    if (req.session && req.session.user && req.session.user.phone === owner.phone) {
+      req.session.user.credits = newCredits;
+    }
+
+    return res.json({ success: true, listing: newListing, credits: newCredits });
   } catch (err) {
     console.error("Create listing error details:", err);
     return res.status(500).json({ success: false, error: isProd ? 'An internal error occurred.' : err.message });
@@ -831,6 +863,7 @@ app.post('/api/auth/register/verify', authLimiter, async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
   const code = (req.body.code || '').trim();
+  const role = req.body.role || 'driver';
 
   if (!name || !phone || !email || !password || !code) {
     return res.status(400).json({ success: false, error: "Missing fields" });
@@ -860,7 +893,9 @@ app.post('/api/auth/register/verify', authLimiter, async (req, res) => {
     phone,
     email,
     password_hash: passwordHash,
-    joined_at: Date.now() / 1000
+    joined_at: Date.now() / 1000,
+    role,
+    credits: 30 // 20 default + 10 sign-in/register bonus
   };
   await db.dbSaveOwner(ownerData);
 
@@ -949,11 +984,76 @@ app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
 });
 
 // Check Session / Current User
-app.get('/api/auth/me', (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
   if (req.session && req.session.user) {
+    try {
+      const owner = await db.dbGetOwner(req.session.user.phone);
+      if (owner) {
+        const safe = safeUserDict(owner);
+        req.session.user = safe;
+        return res.json({ success: true, user: safe });
+      }
+    } catch (e) {
+      console.error('Failed to sync session user credits/role:', e);
+    }
     return res.json({ success: true, user: req.session.user });
   }
   return res.json({ success: false, user: null });
+});
+
+// Deduct Credits
+app.post('/api/credits/deduct', async (req, res) => {
+  try {
+    if (!req.session || !req.session.user) {
+      return res.status(401).json({ success: false, error: "Unauthorized. Please log in." });
+    }
+    const amount = parseInt(req.body.amount || 5);
+    const phone = req.session.user.phone;
+    const owner = await db.dbGetOwner(phone);
+    if (!owner) {
+      return res.status(404).json({ success: false, error: "User not found." });
+    }
+    const isPreviousUser = owner.joined_at < 1780627200 || !owner.joined_at;
+    if (isPreviousUser) {
+      return res.json({ success: true, credits: owner.credits || 0 });
+    }
+
+    if ((owner.credits || 0) < amount) {
+      return res.status(403).json({ success: false, error: "Insufficient credits." });
+    }
+    const newCredits = (owner.credits || 0) - amount;
+    await db.dbUpdateCredits(phone, newCredits);
+    req.session.user.credits = newCredits;
+    return res.json({ success: true, credits: newCredits });
+  } catch (err) {
+    console.error("Deduct credits error:", err);
+    return res.status(500).json({ success: false, error: "An internal error occurred." });
+  }
+});
+
+// Purchase Credits (Sandbox)
+app.post('/api/credits/purchase', async (req, res) => {
+  try {
+    if (!req.session || !req.session.user) {
+      return res.status(401).json({ success: false, error: "Unauthorized. Please log in." });
+    }
+    const amount = parseInt(req.body.amount);
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ success: false, error: "Invalid credit amount." });
+    }
+    const phone = req.session.user.phone;
+    const owner = await db.dbGetOwner(phone);
+    if (!owner) {
+      return res.status(404).json({ success: false, error: "User not found." });
+    }
+    const newCredits = (owner.credits || 0) + amount;
+    await db.dbUpdateCredits(phone, newCredits);
+    req.session.user.credits = newCredits;
+    return res.json({ success: true, credits: newCredits, message: `Successfully purchased ${amount} credits.` });
+  } catch (err) {
+    console.error("Purchase credits error:", err);
+    return res.status(500).json({ success: false, error: "An internal error occurred." });
+  }
 });
 
 // Update Profile Settings (Name & Phone)
@@ -986,6 +1086,55 @@ app.post('/api/auth/update-profile', async (req, res) => {
     console.error(`[ERROR] Profile update failed: ${err.message}`);
     const isKnownError = err.message.includes("is already registered");
     return res.status(400).json({ success: false, error: (isProd && !isKnownError) ? "Profile update failed due to a database error." : err.message });
+  }
+});
+
+// Port Account Role (Switch role: driver <=> owner)
+app.post('/api/auth/port', async (req, res) => {
+  try {
+    if (!req.session || !req.session.user) {
+      return res.status(401).json({ success: false, error: "Unauthorized. Please log in." });
+    }
+    const phone = req.session.user.phone;
+    const owner = await db.dbGetOwner(phone);
+    if (!owner) {
+      return res.status(404).json({ success: false, error: "User not found." });
+    }
+
+    const currentRole = owner.role || 'driver';
+    const targetRole = currentRole === 'driver' ? 'owner' : 'driver';
+
+    const isPreviousUser = owner.joined_at < 1780627200 || !owner.joined_at;
+
+    if (targetRole === 'owner') {
+      // Parking Seeker to Space Owner -> Costs 20 credits (if not previous user)
+      if (!isPreviousUser) {
+        if ((owner.credits || 0) < 20) {
+          return res.status(403).json({ 
+            success: false, 
+            error: `Insufficient credits to switch to Space Owner. Porting costs 20 credits. Current balance: ${owner.credits || 0} credits.` 
+          });
+        }
+        const newCredits = (owner.credits || 0) - 20;
+        await db.dbUpdateCredits(phone, newCredits);
+        owner.credits = newCredits;
+      }
+    }
+
+    await db.dbUpdateRole(phone, targetRole);
+    owner.role = targetRole;
+
+    const safe = safeUserDict(owner);
+    req.session.user = safe;
+
+    return res.json({ 
+      success: true, 
+      user: safe, 
+      message: `Successfully switched account type to ${targetRole === 'owner' ? 'Space Owner' : 'Parking Seeker'}.` 
+    });
+  } catch (err) {
+    console.error("Port account error:", err);
+    return res.status(500).json({ success: false, error: isProd ? "An internal error occurred." : err.message });
   }
 });
 

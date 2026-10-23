@@ -111,13 +111,17 @@ async function initDb() {
           name TEXT,
           email TEXT UNIQUE,
           password_hash TEXT,
-          joined_at DOUBLE PRECISION
+          joined_at DOUBLE PRECISION,
+          role TEXT DEFAULT 'driver',
+          credits DOUBLE PRECISION DEFAULT 20
         );
       `);
 
       // Migrations
       try { await db.query("ALTER TABLE owners ADD COLUMN IF NOT EXISTS email TEXT;"); } catch (e) {}
       try { await db.query("ALTER TABLE owners ADD COLUMN IF NOT EXISTS password_hash TEXT;"); } catch (e) {}
+      try { await db.query("ALTER TABLE owners ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'driver';"); } catch (e) {}
+      try { await db.query("ALTER TABLE owners ADD COLUMN IF NOT EXISTS credits DOUBLE PRECISION DEFAULT 20;"); } catch (e) {}
       try { await db.query("ALTER TABLE owners ADD CONSTRAINT owners_email_unique UNIQUE (email);"); } catch (e) {}
 
       await db.query(`
@@ -174,7 +178,9 @@ async function initDb() {
         name TEXT,
         email TEXT UNIQUE,
         password_hash TEXT,
-        joined_at REAL
+        joined_at REAL,
+        role TEXT DEFAULT 'driver',
+        credits REAL DEFAULT 20
       )`,
       `CREATE TABLE IF NOT EXISTS listings (
         id TEXT PRIMARY KEY,
@@ -189,7 +195,7 @@ async function initDb() {
         breadth REAL,
         amenities TEXT,
         gmap_link TEXT,
-        gmap_link_regen TEXT,
+        gmap_link_regen REAL,
         image TEXT,
         owner_phone TEXT,
         is_sold INTEGER,
@@ -206,6 +212,8 @@ async function initDb() {
         // Run sqlite migrations
         db.run("ALTER TABLE owners ADD COLUMN email TEXT", () => {});
         db.run("ALTER TABLE owners ADD COLUMN password_hash TEXT", () => {});
+        db.run("ALTER TABLE owners ADD COLUMN role TEXT DEFAULT 'driver'", () => {});
+        db.run("ALTER TABLE owners ADD COLUMN credits REAL DEFAULT 20", () => {});
         db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_owners_email ON owners(email)", () => {});
         
         db.run(initSql[1]);
@@ -345,19 +353,37 @@ async function dbSaveOwner(data) {
   let sql, params;
   if (usePostgres) {
     sql = `
-      INSERT INTO owners (phone, name, email, password_hash, joined_at)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO owners (phone, name, email, password_hash, joined_at, role, credits)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (phone) DO UPDATE SET
         name = EXCLUDED.name,
         email = EXCLUDED.email,
-        password_hash = COALESCE(EXCLUDED.password_hash, owners.password_hash)
+        password_hash = COALESCE(EXCLUDED.password_hash, owners.password_hash),
+        role = COALESCE(EXCLUDED.role, owners.role),
+        credits = COALESCE(EXCLUDED.credits, owners.credits)
     `;
-    params = [data.phone, data.name, data.email || '', data.password_hash, data.joined_at];
+    params = [
+      data.phone, data.name, data.email || '', data.password_hash, data.joined_at,
+      data.role || 'driver', data.credits !== undefined ? data.credits : 30
+    ];
   } else {
-    sql = "INSERT OR REPLACE INTO owners (phone, name, email, password_hash, joined_at) VALUES (?, ?, ?, ?, ?)";
-    params = [data.phone, data.name, data.email || '', data.password_hash, data.joined_at];
+    sql = "INSERT OR REPLACE INTO owners (phone, name, email, password_hash, joined_at, role, credits) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    params = [
+      data.phone, data.name, data.email || '', data.password_hash, data.joined_at,
+      data.role || 'driver', data.credits !== undefined ? data.credits : 30
+    ];
   }
   await queryRun(sql, params);
+}
+
+async function dbUpdateCredits(phone, newCredits) {
+  const sql = `UPDATE owners SET credits = ${usePostgres ? '$1' : '?'} WHERE phone = ${usePostgres ? '$2' : '?'}`;
+  await queryRun(sql, [newCredits, phone]);
+}
+
+async function dbUpdateRole(phone, role) {
+  const sql = `UPDATE owners SET role = ${usePostgres ? '$1' : '?'} WHERE phone = ${usePostgres ? '$2' : '?'}`;
+  await queryRun(sql, [role, phone]);
 }
 
 async function dbUpdatePassword(phone, passwordHash) {
@@ -399,5 +425,7 @@ module.exports = {
   dbSaveOwner,
   dbUpdatePassword,
   dbUpdateOwnerProfile,
+  dbUpdateCredits,
+  dbUpdateRole,
   getIsPostgres: () => usePostgres
 };

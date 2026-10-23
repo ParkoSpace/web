@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, MapPin, PhoneCall, Car, ChevronDown, DollarSign, ShieldCheck, Users, HelpCircle } from 'lucide-react';
 
-export default function LandingPage({ currentUser, onFindParking, onPartnerClick }) {
+export default function LandingPage({ currentUser, onFindParking, onPartnerClick, onLoginClick, onBuyCredits, onLogout }) {
   // Toggle between Driver and Space Owner instructions
   const [activeRole, setActiveRole] = useState('driver'); // 'driver' | 'owner'
 
@@ -62,23 +62,57 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={onPartnerClick}
-            className="px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer"
-            style={{ border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.8)', background: 'rgba(255,255,255,0.03)' }}
-          >
-            {currentUser ? (
-              <span className="flex flex-col items-center leading-none text-[9px] uppercase font-mono tracking-wider" style={{ color: '#00d4ff' }}>Dashboard</span>
-            ) : 'Owner Login'}
-          </button>
-          <button 
-            onClick={onFindParking}
-            className="px-4 py-2 text-xs sm:text-sm font-bold rounded-xl border-none cursor-pointer transition hover:scale-105 active:scale-95"
-            style={{ background: '#00d4ff', color: '#05050f' }}
-          >
-            Find Parking
-          </button>
+        <div className="flex items-center gap-3">
+          {currentUser ? (
+            <div className="flex items-center gap-3">
+              <span className="hidden md:inline-block text-xs text-slate-400 font-mono">
+                Hello, <span className="text-teal-400 font-bold">{currentUser.name}</span>
+              </span>
+              
+              {currentUser.role === 'owner' ? (
+                <button 
+                  onClick={onPartnerClick}
+                  className="px-3.5 py-2 text-xs font-semibold rounded-xl border-none cursor-pointer transition hover:scale-105 active:scale-95"
+                  style={{ background: '#00d4ff', color: '#05050f' }}
+                >
+                  Owner Dashboard
+                </button>
+              ) : (
+                <button 
+                  onClick={onFindParking}
+                  className="px-3.5 py-2 text-xs font-semibold rounded-xl border-none cursor-pointer transition hover:scale-105 active:scale-95"
+                  style={{ background: '#00d4ff', color: '#05050f' }}
+                >
+                  Explore Map
+                </button>
+              )}
+
+              <button 
+                onClick={onLogout}
+                className="px-3.5 py-2 text-xs font-semibold rounded-xl transition cursor-pointer"
+                style={{ border: '1px solid rgba(239,68,68,0.3)', color: 'rgba(239,68,68,0.9)', background: 'rgba(239,68,68,0.05)' }}
+              >
+                Sign Out
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={onLoginClick}
+                className="px-4 py-2 text-xs font-semibold rounded-xl transition cursor-pointer"
+                style={{ border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.8)', background: 'rgba(255,255,255,0.03)' }}
+              >
+                Login
+              </button>
+              <button 
+                onClick={onFindParking}
+                className="px-4 py-2 text-xs sm:text-sm font-bold rounded-xl border-none cursor-pointer transition hover:scale-105 active:scale-95"
+                style={{ background: '#00d4ff', color: '#05050f' }}
+              >
+                Find Parking
+              </button>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -154,7 +188,7 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
               { icon: <Users className="w-5 h-5" />, title: "Direct Contact", desc: "No booking systems or corporate handlers. Call the space owner directly to align on details.", color: "#00d4ff" },
-              { icon: <DollarSign className="w-5 h-5" />, title: "Zero Platform Fees", desc: "Drivers pay owners directly via Cash/UPI. 100% of the agreed price stays between you two.", color: "#06ffa5" },
+              { icon: <DollarSign className="w-5 h-5" />, title: "Zero Platform Fees", desc: "Seekers pay owners directly via Cash/UPI. 100% of the agreed price stays between you two.", color: "#06ffa5" },
               { icon: <MapPin className="w-5 h-5" />, title: "Interactive Finder", desc: "Browse nearby spots on a live map. Filter by space sizes, price rates, and amenities.", color: "#9b5de5" },
               { icon: <ShieldCheck className="w-5 h-5" />, title: "Safe & Verified", desc: "Contact numbers and addresses are verified. Built-in support guidelines prevent disputes.", color: "#f72585" }
             ].map((item, idx) => (
@@ -206,7 +240,7 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
               <div className="text-[10px] font-mono tracking-widest text-pink-400 font-bold uppercase mb-2">Have Empty Space?</div>
               <h3 className="text-xl sm:text-2xl font-bold text-white mb-3">Rent Your Parking Space</h3>
               <p className="text-slate-400 text-xs sm:text-sm leading-relaxed mb-6">
-                Turn your empty gate front, garage, or driveway into extra cash. Add your space in minutes, set your own hourly or monthly rates, and get calls from local drivers.
+                Turn your empty gate front, garage, or driveway into extra cash. Add your space in minutes, set your own hourly or monthly rates, and get calls from local seekers.
               </p>
             </div>
             <button 
@@ -281,8 +315,8 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {[
                   { num: '1', icon: <Plus className="w-5 h-5 text-pink-400" />, title: 'Add Space Details', desc: 'Login, tap Add Space, and input your rates (hourly/monthly), landmarks, and amenities.' },
-                  { num: '2', icon: <MapPin className="w-5 h-5 text-purple-400" />, title: 'Verify Location', desc: 'Use the quick GPS tool to fetch coordinates or paste a link so drivers find your gate easily.' },
-                  { num: '3', icon: <DollarSign className="w-5 h-5 text-green-400" />, title: 'Get Calls & Earn', desc: 'Your spot shows up on the live map. Local drivers call your phone directly to rent it.' }
+                  { num: '2', icon: <MapPin className="w-5 h-5 text-purple-400" />, title: 'Verify Location', desc: 'Use the quick GPS tool to fetch coordinates or paste a link so seekers find your gate easily.' },
+                  { num: '3', icon: <DollarSign className="w-5 h-5 text-green-400" />, title: 'Get Calls & Earn', desc: 'Your spot shows up on the live map. Local seekers call your phone directly to rent it.' }
                 ].map((item, idx) => (
                   <div key={idx} className="bg-slate-950/50 border border-slate-800 rounded-2xl p-6 relative">
                     <span className="absolute top-4 right-4 text-3xl font-bold font-mono text-slate-800 select-none">{item.num}</span>
@@ -295,6 +329,93 @@ export default function LandingPage({ currentUser, onFindParking, onPartnerClick
                 ))}
               </div>
             )}
+          </div>
+
+        </div>
+      </section>
+
+      {/* ── CREDIT MONETIZATION RULES ── */}
+      <section className="px-4 sm:px-6 py-20 bg-slate-905/30 border-t border-slate-900/60" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <div className="max-w-4xl mx-auto">
+          
+          <div className="text-center mb-10">
+            <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-mono tracking-wider mb-3.5"
+                 style={{ border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.05)', color: '#00d4ff' }}>
+              PRICING
+            </div>
+            <h2 className="font-display tracking-wider text-white text-3xl sm:text-4xl">
+              TRANSPARENT <span style={{ color: '#00d4ff' }}>CREDIT MODEL</span>
+            </h2>
+            <p className="text-slate-400 text-xs sm:text-sm mt-2 max-w-md mx-auto leading-relaxed">
+              ParkoSpace runs on a credit balance system. Keep 100% of your earnings with zero commission cuts.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            
+            {/* Drivers */}
+            <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between">
+              <div>
+                <h3 className="font-bold text-teal-400 text-xs font-mono uppercase tracking-wider mb-2 flex items-center gap-1">
+                  <span>🚗</span> Parking Seekers
+                </h3>
+                <div className="text-xl font-bold text-white mb-4">20 Welcome Credits</div>
+                <ul className="text-slate-400 text-xs space-y-2 mb-6 list-disc list-inside">
+                  <li>Get 20 welcome credits instantly</li>
+                  <li>Deducts 5 credits to Navigate or Call Owner</li>
+                  <li>Get +10 bonus credits on free sign-up</li>
+                </ul>
+              </div>
+              <button 
+                onClick={onFindParking}
+                className="w-full py-2.5 bg-teal-900/20 hover:bg-teal-500 text-teal-450 hover:text-slate-950 font-bold text-xs rounded-xl transition cursor-pointer border border-teal-500/10 hover:border-transparent"
+              >
+                Find Parking Now
+              </button>
+            </div>
+
+            {/* Space Owners */}
+            <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between">
+              <div>
+                <h3 className="font-bold text-teal-400 text-xs font-mono uppercase tracking-wider mb-2 flex items-center gap-1">
+                  <span>🏡</span> Parking Space Owners
+                </h3>
+                <div className="text-xl font-bold text-white mb-4">100 Credits / Space</div>
+                <ul className="text-slate-400 text-xs space-y-2 mb-6 list-disc list-inside">
+                  <li>Listing a driveway or garage costs 100 credits</li>
+                  <li>No recurring monthly subscription fees</li>
+                  <li>Keep 100% of seeker cash/UPI payments</li>
+                </ul>
+              </div>
+              <button 
+                onClick={onPartnerClick}
+                className="w-full py-2.5 bg-teal-900/20 hover:bg-teal-500 text-teal-450 hover:text-slate-950 font-bold text-xs rounded-xl transition cursor-pointer border border-teal-500/10 hover:border-transparent"
+              >
+                List My Space
+              </button>
+            </div>
+
+            {/* Pricing Top-Up */}
+            <div className="bg-slate-950/50 border border-teal-500/20 rounded-2xl p-6 flex flex-col justify-between shadow-lg shadow-teal-950/15">
+              <div>
+                <h3 className="font-bold text-pink-400 text-xs font-mono uppercase tracking-wider mb-2 flex items-center gap-1">
+                  <span>💳</span> Top-Up Balance
+                </h3>
+                <div className="text-xl font-bold text-white mb-4">₹0.50 / $0.50 per credit</div>
+                <ul className="text-slate-400 text-xs space-y-2 mb-6 list-disc list-inside">
+                  <li>In India: ₹0.50 INR per credit (₹50 / 100 credits)</li>
+                  <li>Outside India: $0.50 USD per credit ($50 / 100 credits)</li>
+                  <li>Simulated sandbox top-ups (No real payments)</li>
+                </ul>
+              </div>
+              <button 
+                onClick={onBuyCredits}
+                className="w-full py-2.5 bg-pink-900/20 hover:bg-pink-500 text-pink-450 hover:text-white font-bold text-xs rounded-xl transition cursor-pointer border border-pink-500/25 hover:border-transparent"
+              >
+                Buy Credits
+              </button>
+            </div>
+
           </div>
 
         </div>
